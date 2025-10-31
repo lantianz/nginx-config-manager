@@ -87,7 +87,7 @@ Nginx 配置管理器是一款专为 Windows 平台设计的桌面应用程序�
 
 ### 下载安装包
 
-从 [Releases](https://github.com/yourusername/nginx-config-manager/releases) 页面下载最新版本的安装包：
+从 [Releases](https://github.com/lantianz/nginx-config-manager/releases) 页面下载最新版本的安装包：
 
 - **推荐**：`nginx-config-manager_0.1.0_x64-setup.exe` (NSIS 安装包)
 - **备选**：`nginx-config-manager_0.1.0_x64_en-US.msi` (MSI 安装包)
@@ -116,7 +116,7 @@ Nginx 配置管理器是一款专为 Windows 平台设计的桌面应用程序�
 ### 克隆仓库
 
 ```bash
-git clone https://github.com/yourusername/nginx-config-manager.git
+git clone https://github.com/lantianz/nginx-config-manager.git
 cd nginx-config-manager
 ```
 
@@ -189,9 +189,9 @@ A: 建议在修改配置前手动备份 `nginx.conf` 文件。
 
 ## 👨‍💻 作者
 
-**Lantianzhi**
+**lantianz**
 
-- GitHub: [@lantianzhi](https://github.com/lantianzhi)
+- GitHub: [@lantianz](https://github.com/lantianz)
 
 ## 🙏 致谢
 
@@ -230,4 +230,4 @@ A: 建议在修改配置前手动备份 `nginx.conf` 文件。
 
 ---
 
-**如果觉得这个项目对你有帮助，请给个 ⭐ Star 支持一下！**
+**⭐ ⭐ ⭐**
