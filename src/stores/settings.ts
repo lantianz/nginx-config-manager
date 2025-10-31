@@ -8,7 +8,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const settings = ref<AppSettings>({
     nginxPath: '',
     configPath: '',
-    theme: 'auto',
+    theme: 'dark',
     language: 'zh-CN',
   });
 

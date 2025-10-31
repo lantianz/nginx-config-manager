@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub nginx_path: String,
     pub config_path: String,
@@ -15,7 +16,7 @@ impl Default for AppSettings {
         Self {
             nginx_path: String::new(),
             config_path: String::new(),
-            theme: "auto".to_string(),
+            theme: "dark".to_string(),
             language: "zh-CN".to_string(),
         }
     }

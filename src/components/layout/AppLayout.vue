@@ -1,15 +1,18 @@
 <template>
   <n-config-provider :theme="theme" :locale="zhCN" :date-locale="dateZhCN">
-    <n-message-provider>
+    <n-message-provider :container-style="{ top: '40px' }">
       <n-dialog-provider>
-        <n-notification-provider>
-          <n-layout has-sider style="height: 100vh">
+        <n-notification-provider :container-style="{ top: '40px' }">
+          <!-- 自定义标题栏 -->
+          <TitleBar :is-dark="isDark" />
+
+          <n-layout has-sider style="height: 100vh; padding-top: 32px">
             <!-- 侧边栏 -->
             <n-layout-sider bordered collapse-mode="width" :collapsed-width="64" :width="200" show-trigger
               @collapse="collapsed = true" @expand="collapsed = false">
               <div class="logo-container">
-                <n-icon size="64">
-                  <img style="width: 64px; height: 64px;" src="./../../assets/nginx-logo.svg" alt="" srcset="">
+                <n-icon :size="logoWidth">
+                  <img :style="{ width: logoWidth + 'px', height: logoWidth + 'px' }" src="./../../assets/nginx-logo.svg" alt="" class="logo">
                 </n-icon>
               </div>
 
@@ -18,7 +21,7 @@
             </n-layout-sider>
 
             <!-- 主内容区 -->
-            <n-layout style="height: 100vh; display: flex; flex-direction: column">
+            <n-layout style="height: calc(100vh - 32px); display: flex; flex-direction: column">
               <n-layout-header bordered style="
                   height: 60px;
                   padding: 0 16px;
@@ -37,7 +40,7 @@
                 </div>
               </n-layout-header>
 
-              <n-layout position="absolute" style="top: 60px; bottom: 40px; width: 100%; height: calc(100vh - 100px);">
+              <n-layout position="absolute" style="top: 60px; bottom: 40px; width: 100%; height: calc(100vh - 132px);">
                 <router-view style="padding: 16px;" />
               </n-layout>
 
@@ -95,12 +98,16 @@ import {
   MoonOutline,
   SunnyOutline,
 } from "@vicons/ionicons5";
+import TitleBar from "./TitleBar.vue";
 import { useNginxStore } from "../../stores/nginx";
 import { useSettingsStore } from "../../stores/settings";
 
 const router = useRouter();
 const nginxStore = useNginxStore();
 const settingsStore = useSettingsStore();
+
+// logo宽度
+const logoWidth = computed(() => (collapsed.value ? 40 : 64));
 
 // 状态
 const collapsed = ref(false);
@@ -216,6 +223,10 @@ init();
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid var(--n-border-color);
+}
+
+.logo {
+  transition: all 0.2s linear;
 }
 
 .header-title h2 {

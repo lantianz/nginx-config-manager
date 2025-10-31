@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "nginx-config-manager",
+  "productName": "Nginx Config Manager",
   "version": "0.1.0",
   "identifier": "com.lantianzhi.nginx-config-manager",
   "build": {
@@ -12,12 +12,14 @@
   "app": {
     "windows": [
       {
-        "title": "Nginx 配置管理器",
+        "label": "main",
+        "title": "Nginx 管理工具",
         "width": 1000,
         "height": 700,
         "minWidth": 800,
         "minHeight": 600,
-        "center": true
+        "center": true,
+        "decorations": false
       }
     ],
     "security": {

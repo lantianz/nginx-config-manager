@@ -6,7 +6,7 @@
         <n-space vertical :size="16">
           <n-descriptions :column="1" label-placement="left" bordered>
             <n-descriptions-item label="应用名称">
-              <n-text strong>Nginx 配置管理器</n-text>
+              <n-text strong>Nginx 管理工具</n-text>
             </n-descriptions-item>
             <n-descriptions-item label="应用版本">
               <n-tag type="info">v{{ appVersion }}</n-tag>

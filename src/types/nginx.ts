@@ -11,7 +11,7 @@ export interface NginxStatus {
 }
 
 /**
- * Nginx 配置测试结果
+ * Nginx 配置校验结果
  */
 export interface TestResult {
   success: boolean;

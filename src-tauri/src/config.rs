@@ -49,6 +49,7 @@ pub struct NginxConfig {
 
 /// 配置解析结果
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ParseResult {
     pub success: bool,
     pub message: String,
@@ -612,18 +613,98 @@ pub fn add_location_to_server(
     })
 }
 
-/// 添加 Server 块（文本格式）
+/// 查找 http 块的位置
+fn find_http_block(lines: &[&str]) -> Result<(usize, usize), String> {
+    let mut http_start = None;
+    let mut depth = 0;
+
+    // 查找 http 块的开始位置
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("http") && trimmed.contains('{') {
+            http_start = Some(i);
+            depth = 1;
+            break;
+        }
+    }
+
+    let http_start = http_start.ok_or_else(|| {
+        "未找到 http 块，请确保配置文件中包含 http {} 块".to_string()
+    })?;
+
+    // 查找 http 块的结束位置（匹配的右花括号）
+    for i in (http_start + 1)..lines.len() {
+        let line = lines[i].trim();
+
+        for ch in line.chars() {
+            if ch == '{' {
+                depth += 1;
+            } else if ch == '}' {
+                depth -= 1;
+                if depth == 0 {
+                    return Ok((http_start, i));
+                }
+            }
+        }
+    }
+
+    Err("http 块未正确闭合，缺少匹配的右花括号".to_string())
+}
+
+/// 生成添加 Server 块后的新配置内容（不保存到文件）
+#[tauri::command]
+pub fn generate_add_server_content(
+    config_path: String,
+    server_text: String,
+) -> Result<String, String> {
+    // 读取配置文件
+    let content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取配置文件失败: {}", e))?;
+
+    let lines: Vec<&str> = content.lines().collect();
+
+    // 查找 http 块的位置
+    let (_http_start, http_end) = find_http_block(&lines)
+        .map_err(|e| format!("定位 http 块失败: {}", e))?;
+
+    // 构建新的配置内容
+    let mut new_lines = Vec::new();
+
+    // 复制 http 块结束之前的所有内容
+    for i in 0..http_end {
+        new_lines.push(lines[i].to_string());
+    }
+
+    // 添加新的 server 块（在 http 块的右花括号之前）
+    new_lines.push(String::new()); // 空行
+    for line in server_text.trim().lines() {
+        // 为 server 块添加适当的缩进（4个空格）
+        if line.trim().is_empty() {
+            new_lines.push(String::new());
+        } else {
+            new_lines.push(format!("    {}", line));
+        }
+    }
+    new_lines.push(String::new()); // 空行
+
+    // 添加 http 块的右花括号和之后的内容
+    for i in http_end..lines.len() {
+        new_lines.push(lines[i].to_string());
+    }
+
+    let new_content = new_lines.join("\n");
+    Ok(new_content)
+}
+
+/// 添加 Server 块（文本格式）- 先校验再保存
 #[tauri::command]
 pub fn add_server_block_text(
     config_path: String,
     server_text: String,
 ) -> Result<EditResult, String> {
-    // 读取配置文件
-    let content = fs::read_to_string(&config_path)
-        .map_err(|e| format!("读取配置文件失败: {}", e))?;
-
-    // 在文件末尾添加新的 server 块
-    let new_content = format!("{}\n\n{}\n", content.trim_end(), server_text.trim());
+    // 生成新配置内容
+    let new_content = generate_add_server_content(config_path.clone(), server_text)?;
 
     // 写入配置文件
     fs::write(&config_path, new_content)
@@ -635,13 +716,13 @@ pub fn add_server_block_text(
     })
 }
 
-/// 更新 Server 块（文本格式）
+/// 生成更新 Server 块后的新配置内容（不保存到文件）
 #[tauri::command]
-pub fn update_server_block_text(
+pub fn generate_update_server_content(
     config_path: String,
     server_id: String,
     server_text: String,
-) -> Result<EditResult, String> {
+) -> Result<String, String> {
     // 读取并解析配置文件
     let content = fs::read_to_string(&config_path)
         .map_err(|e| format!("读取配置文件失败: {}", e))?;
@@ -678,6 +759,18 @@ pub fn update_server_block_text(
     }
 
     let new_content = new_lines.join("\n");
+    Ok(new_content)
+}
+
+/// 更新 Server 块（文本格式）- 先校验再保存
+#[tauri::command]
+pub fn update_server_block_text(
+    config_path: String,
+    server_id: String,
+    server_text: String,
+) -> Result<EditResult, String> {
+    // 生成新配置内容
+    let new_content = generate_update_server_content(config_path.clone(), server_id, server_text)?;
 
     // 写入配置文件
     fs::write(&config_path, new_content)
@@ -686,6 +779,70 @@ pub fn update_server_block_text(
     Ok(EditResult {
         success: true,
         message: "Server 块更新成功".to_string(),
+    })
+}
+
+/// 将内容写入临时文件用于校验
+#[tauri::command]
+pub fn write_temp_config_for_validation(
+    original_config_path: String,
+    new_content: String,
+) -> Result<String, String> {
+    use std::path::Path;
+
+    let original_path = Path::new(&original_config_path);
+    let parent_dir = original_path.parent()
+        .ok_or_else(|| "无法获取配置文件目录".to_string())?;
+
+    let temp_file_name = format!(
+        ".nginx_temp_{}.conf",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+    );
+
+    let temp_path = parent_dir.join(temp_file_name);
+    let temp_path_str = temp_path.to_str()
+        .ok_or_else(|| "临时文件路径转换失败".to_string())?
+        .to_string();
+
+    // 写入临时文件
+    fs::write(&temp_path, new_content)
+        .map_err(|e| format!("写入临时文件失败: {}", e))?;
+
+    Ok(temp_path_str)
+}
+
+/// 删除临时配置文件
+#[tauri::command]
+pub fn delete_temp_config(temp_path: String) -> Result<(), String> {
+    if temp_path.contains(".nginx_temp_") {
+        let _ = fs::remove_file(&temp_path);
+    }
+    Ok(())
+}
+
+/// 读取配置文件原始内容（用于格式化）
+#[tauri::command]
+pub fn read_config_file_content(config_path: String) -> Result<String, String> {
+    fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取配置文件失败: {}", e))
+}
+
+/// 写入格式化后的配置文件
+#[tauri::command]
+pub fn write_formatted_config(
+    config_path: String,
+    formatted_content: String,
+) -> Result<EditResult, String> {
+    // 写入配置文件
+    fs::write(&config_path, formatted_content)
+        .map_err(|e| format!("写入配置文件失败: {}", e))?;
+
+    Ok(EditResult {
+        success: true,
+        message: "配置文件格式化成功".to_string(),
     })
 }
 

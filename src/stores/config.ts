@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import type { NginxConfig, ServerBlock, LocationBlock } from '@/types/config';
+import { useLogStore } from './log';
 
 interface ParseResult {
   success: boolean;
@@ -131,29 +132,55 @@ export const useConfigStore = defineStore('config', {
   actions: {
     /**
      * 读取并解析配置文件
+     * @param configPath 配置文件路径
+     * @returns 返回包含成功状态和错误信息的对象
      */
-    async loadConfig(configPath: string): Promise<boolean> {
+    async loadConfig(configPath: string): Promise<{ success: boolean; message?: string }> {
+      const logStore = useLogStore();
+
       this.loading = true;
       this.error = null;
 
       try {
         const result = await invoke<ParseResult>('read_config_file', {
-          configPath,
+          configPath: configPath,
         });
+
+        if (!result) {
+          const errorMsg = '调用 read_config_file 返回空结果';
+          this.error = errorMsg;
+          this.config = null;
+          logStore.error(`${errorMsg} (路径: ${configPath})`);
+          return { success: false, message: errorMsg };
+        }
 
         if (result.success && result.config) {
           this.config = result.config;
           this.error = null;
-          return true;
+
+          // 记录日志
+          logStore.info(`配置文件加载成功: ${configPath}`);
+
+          return { success: true };
         } else {
-          this.error = result.message;
+          this.error = result.message || '未知错误';
           this.config = null;
-          return false;
+
+          // 记录错误日志
+          logStore.error(`配置文件加载失败: ${configPath} - ${result.message}`);
+
+          return { success: false, message: result.message };
         }
       } catch (error) {
-        this.error = `加载配置文件失败: ${error}`;
+        console.error('invoke 调用异常:', error);
+        const errorMsg = `加载配置文件失败: ${error}`;
+        this.error = errorMsg;
         this.config = null;
-        return false;
+
+        // 记录错误日志
+        logStore.error(`${errorMsg} (路径: ${configPath})`);
+
+        return { success: false, message: errorMsg };
       } finally {
         this.loading = false;
       }
@@ -166,7 +193,8 @@ export const useConfigStore = defineStore('config', {
       if (!this.config) {
         return false;
       }
-      return await this.loadConfig(this.config.filePath);
+      const result = await this.loadConfig(this.config.filePath);
+      return result.success;
     },
 
     /**

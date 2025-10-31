@@ -90,14 +90,14 @@ export const useNginxStore = defineStore('nginx', () => {
     }
   };
 
-  // 测试配置
+  // 校验配置
   const testConfig = async (nginxPath: string) => {
     try {
       isLoading.value = true;
       const result = await invoke<{ success: boolean; message: string }>('test_nginx_config', { nginxPath });
       return result;
     } catch (error) {
-      console.error('测试配置失败:', error);
+      console.error('校验配置失败:', error);
       throw error;
     } finally {
       isLoading.value = false;

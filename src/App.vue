@@ -14,7 +14,7 @@ import AppLayout from './components/layout/AppLayout.vue';
 }
 
 body {
-  font-family: 'Microsoft YaHei UI', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: 'PingFang SC', 'Microsoft YaHei', '微软雅黑', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 #app {

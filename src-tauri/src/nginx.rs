@@ -7,6 +7,13 @@ use std::time::Duration;
 #[cfg(target_os = "windows")]
 use encoding_rs::GBK;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+// Windows 创建进程标志：不创建控制台窗口
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 /// 在 Windows 下将 GBK 编码的字节转换为 UTF-8 字符串
 #[cfg(target_os = "windows")]
 fn decode_gbk(bytes: &[u8]) -> String {
@@ -81,6 +88,7 @@ pub fn is_nginx_running() -> bool {
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("cmd")
+            .creation_flags(CREATE_NO_WINDOW)
             .args(["/C", "tasklist | findstr /i nginx.exe"])
             .output();
 
@@ -110,6 +118,7 @@ pub fn get_nginx_process_count() -> u32 {
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("cmd")
+            .creation_flags(CREATE_NO_WINDOW)
             .args(["/C", "tasklist | findstr /i nginx.exe"])
             .output();
 
@@ -182,7 +191,7 @@ pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
     {
         let (nginx_exe, working_dir) = parse_nginx_path(&nginx_path);
 
-        // 先测试配置是否正确
+        // 先校验配置是否正确
         let test_output = Command::new(&nginx_exe)
             .args(["-t"])
             .current_dir(&working_dir)
@@ -194,7 +203,7 @@ pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
                 if !output.status.success() {
                     return Ok(OperationResult {
                         success: false,
-                        message: format!("✗ 配置测试失败，无法启动:\n{}", stderr),
+                        message: format!("✗ 配置校验失败，无法启动:\n{}", stderr),
                     });
                 }
             }
@@ -239,7 +248,7 @@ pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
     {
         let (nginx_exe, _working_dir) = parse_nginx_path(&nginx_path);
 
-        // 先测试配置
+        // 先校验配置
         let test_output = Command::new(&nginx_exe)
             .args(["-t"])
             .output();
@@ -250,7 +259,7 @@ pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
                 if !output.status.success() {
                     return Ok(OperationResult {
                         success: false,
-                        message: format!("✗ 配置测试失败，无法启动:\n{}", stderr),
+                        message: format!("✗ 配置校验失败，无法启动:\n{}", stderr),
                     });
                 }
             }
@@ -301,6 +310,7 @@ pub fn stop_nginx() -> Result<OperationResult, String> {
     #[cfg(target_os = "windows")]
     {
         let output = Command::new("cmd")
+            .creation_flags(CREATE_NO_WINDOW)
             .args(["/C", "taskkill /F /IM nginx.exe"])
             .output();
 
@@ -507,7 +517,7 @@ pub fn test_nginx_config(nginx_path: String) -> Result<OperationResult, String> 
                 if output.status.success() {
                     Ok(OperationResult {
                         success: true,
-                        message: format!("✓ 配置测试通过\n\n{}", stderr),
+                        message: format!("✓ 配置校验通过\n\n{}", stderr),
                     })
                 } else {
                     let error_msg = if !stderr.is_empty() {
@@ -517,7 +527,7 @@ pub fn test_nginx_config(nginx_path: String) -> Result<OperationResult, String> 
                     };
                     Ok(OperationResult {
                         success: false,
-                        message: format!("✗ 配置测试失败\n\n{}", error_msg),
+                        message: format!("✗ 配置校验失败\n\n{}", error_msg),
                     })
                 }
             }
@@ -543,7 +553,7 @@ pub fn test_nginx_config(nginx_path: String) -> Result<OperationResult, String> 
                 if output.status.success() {
                     Ok(OperationResult {
                         success: true,
-                        message: format!("✓ 配置测试通过\n\n{}", stderr),
+                        message: format!("✓ 配置校验通过\n\n{}", stderr),
                     })
                 } else {
                     let error_msg = if !stderr.is_empty() {
@@ -553,13 +563,106 @@ pub fn test_nginx_config(nginx_path: String) -> Result<OperationResult, String> 
                     };
                     Ok(OperationResult {
                         success: false,
-                        message: format!("✗ 配置测试失败\n\n{}", error_msg),
+                        message: format!("✗ 配置校验失败\n\n{}", error_msg),
                     })
                 }
             }
             Err(e) => Ok(OperationResult {
                 success: false,
                 message: format!("✗ 无法执行测试: {}\n请检查 Nginx 路径是否正确", e),
+            }),
+        }
+    }
+}
+
+/// 测试指定配置文件的 Nginx 配置
+#[tauri::command]
+pub fn test_nginx_config_file(nginx_path: String, config_path: String) -> Result<OperationResult, String> {
+    if nginx_path.is_empty() {
+        return Ok(OperationResult {
+            success: false,
+            message: "请先设置 Nginx 路径".to_string(),
+        });
+    }
+
+    if config_path.is_empty() {
+        return Ok(OperationResult {
+            success: false,
+            message: "配置文件路径不能为空".to_string(),
+        });
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let (nginx_exe, working_dir) = parse_nginx_path(&nginx_path);
+        let output = Command::new(&nginx_exe)
+            .creation_flags(CREATE_NO_WINDOW)
+            .args(["-t", "-c", &config_path])
+            .current_dir(&working_dir)
+            .output();
+
+        match output {
+            Ok(output) => {
+                // nginx -t 的输出在 stderr 中
+                let stderr = decode_output(&output.stderr);
+                let stdout = decode_output(&output.stdout);
+
+                if output.status.success() {
+                    Ok(OperationResult {
+                        success: true,
+                        message: format!("✓ 配置校验通过\n\n{}", stderr),
+                    })
+                } else {
+                    let error_msg = if !stderr.is_empty() {
+                        stderr
+                    } else {
+                        stdout
+                    };
+                    Ok(OperationResult {
+                        success: false,
+                        message: format!("✗ 配置校验失败\n\n{}", error_msg),
+                    })
+                }
+            }
+            Err(e) => Ok(OperationResult {
+                success: false,
+                message: format!("✗ 无法执行校验: {}\n请检查 Nginx 路径是否正确", e),
+            }),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let (nginx_exe, _working_dir) = parse_nginx_path(&nginx_path);
+        let output = Command::new(&nginx_exe)
+            .args(["-t", "-c", &config_path])
+            .output();
+
+        match output {
+            Ok(output) => {
+                let stderr = decode_output(&output.stderr);
+                let stdout = decode_output(&output.stdout);
+
+                if output.status.success() {
+                    Ok(OperationResult {
+                        success: true,
+                        message: format!("✓ 配置校验通过\n\n{}", stderr),
+                    })
+                } else {
+                    let error_msg = if !stderr.is_empty() {
+                        stderr
+                    } else {
+                        stdout
+                    };
+                    Ok(OperationResult {
+                        success: false,
+                        message: format!("✗ 配置校验失败\n\n{}", error_msg),
+                    })
+                }
+            }
+            Err(e) => Ok(OperationResult {
+                success: false,
+                message: format!("✗ 无法执行校验: {}\n请检查 Nginx 路径是否正确", e),
             }),
         }
     }

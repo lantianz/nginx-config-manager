@@ -81,7 +81,7 @@
 
           <n-button secondary :loading="nginxStore.isLoading" :disabled="!nginxPath" @click="handleTestConfig">
             <n-icon :component="CheckmarkDoneOutline" />
-            测试配置
+            校验配置
           </n-button>
         </n-space>
       </n-card>
@@ -133,7 +133,8 @@ onMounted(async () => {
   await settingsStore.loadSettings();
   nginxPath.value = settingsStore.settings.nginxPath;
   configPath.value = settingsStore.settings.configPath;
-  await handleRefreshStatus();
+  // 不再自动刷新状态，只在应用首次启动时刷新（在 AppLayout.vue 中）
+  // 用户可以通过点击"刷新状态"按钮手动刷新
 });
 
 // 路径变更处理
@@ -295,7 +296,7 @@ const handleReload = async () => {
   }
 };
 
-// 测试配置
+// 校验配置
 const handleTestConfig = async () => {
   if (!nginxPath.value) {
     message.warning('请先设置 Nginx 路径');
@@ -303,19 +304,19 @@ const handleTestConfig = async () => {
   }
 
   try {
-    logStore.info('正在测试配置...');
+    logStore.info('正在校验配置...');
     const result = await nginxStore.testConfig(nginxPath.value);
 
     if (result?.success) {
-      message.success('配置测试通过');
+      message.success('配置校验通过');
       logStore.success(result.message);
     } else {
-      message.error('配置测试失败');
-      logStore.error(result?.message || '配置测试失败');
+      message.error('配置校验失败');
+      logStore.error(result?.message || '配置校验失败');
     }
   } catch (error) {
-    message.error('测试配置失败');
-    logStore.error(`测试配置失败: ${error}`);
+    message.error('校验配置失败');
+    logStore.error(`校验配置失败: ${error}`);
   }
 };
 </script>
