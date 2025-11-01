@@ -51,7 +51,7 @@
               新增 Server
             </n-button>
 
-            <n-button type="info" @click="handleReloadConfig" :loading="isReloading" :disabled="!settingsStore.settings.nginxPath">
+            <n-button type="info" @click="handleReloadConfig" :loading="nginxStore.isLoading" :disabled="!settingsStore.settings.nginxPath || !nginxStore.status.isRunning">
               <template #icon>
                 <n-icon :component="ReloadOutline" />
               </template>
@@ -324,9 +324,6 @@ const detailContent = ref('');
 // 格式化整个配置文件的加载状态
 const isFormatting = ref(false);
 
-// 重载配置的加载状态
-const isReloading = ref(false);
-
 // 初始化时加载配置路径
 onMounted(async () => {
   // 先加载 settings
@@ -412,7 +409,6 @@ const handleReloadConfig = async () => {
   }
 
   try {
-    isReloading.value = true;
     logStore.info('正在重载配置...');
     const result = await nginxStore.reload(nginxPath);
 
@@ -420,14 +416,12 @@ const handleReloadConfig = async () => {
       message.success(result.message);
       logStore.success(result.message);
     } else {
-      message.error(result?.message || '重载配置失败');
-      logStore.error(result?.message || '重载配置失败');
+      message.error(result?.message || '重载失败');
+      logStore.error(result?.message || '重载失败');
     }
   } catch (error) {
-    message.error(`重载配置失败: ${error}`);
-    logStore.error(`重载配置失败: ${error}`);
-  } finally {
-    isReloading.value = false;
+    message.error('重载失败');
+    logStore.error(`重载失败: ${error}`);
   }
 };
 
