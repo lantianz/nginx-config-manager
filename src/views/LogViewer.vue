@@ -36,7 +36,7 @@
 
           <n-timeline v-else>
             <n-timeline-item
-              v-for="log in reversedFilteredLogs"
+              v-for="log in filteredLogs"
               :key="log.id"
               :type="getTimelineType(log.level)"
               :color="getLogColor(log.level)"
@@ -106,9 +106,6 @@ const filteredLogs = computed(() => {
   }
   return logs.value.filter(log => log.level === selectedLevel.value);
 });
-
-// 反转过滤后的日志（最新的在前）
-const reversedFilteredLogs = computed(() => [...filteredLogs.value].reverse());
 
 // 统计各类日志数量
 const successCount = computed(() => logs.value.filter(log => log.level === 'success').length);
