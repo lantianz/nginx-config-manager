@@ -89,8 +89,8 @@ Nginx 管理工具是一款专为 Windows 平台设计的桌面应用程序，�
 
 从 [Releases](https://github.com/lantianz/nginx-config-manager/releases) 页面下载最新版本的安装包：
 
-- **推荐**：`nginx-config-manager_0.1.0_x64-setup.exe` (NSIS 安装包)
-- **备选**：`nginx-config-manager_0.1.0_x64_en-US.msi` (MSI 安装包)
+- **推荐**：`nginx-config-manager_0.2.0_x64-setup.exe` (NSIS 安装包)
+- **备选**：`nginx-config-manager_0.2.0_x64_en-US.msi` (MSI 安装包)
 
 ### 安装步骤
 
@@ -149,9 +149,9 @@ npm run tauri build
 ```
 src-tauri/target/release/bundle/
 ├── msi/
-│   └── nginx-config-manager_0.1.0_x64_en-US.msi
+│   └── nginx-config-manager_0.2.0_x64_en-US.msi
 └── nsis/
-    └── nginx-config-manager_0.1.0_x64-setup.exe
+    └── nginx-config-manager_0.2.0_x64-setup.exe
 ```
 
 ### 安装包类型
@@ -183,11 +183,7 @@ A: 应用已自动处理 Windows GBK 编码，如仍有问题请检查 Nginx 日
 **Q: 如何备份配置文件？**
 A: 建议在修改配置前手动备份 `nginx.conf` 文件。
 
-## 📄 许可证
-
-本项目采用 [MIT License](LICENSE) 开源许可证。
-
-## 👨‍💻 作者
+## ‍💻 作者
 
 **lantianz**
 
@@ -205,29 +201,8 @@ A: 建议在修改配置前手动备份 `nginx.conf` 文件。
 
 ## 📝 更新日志
 
-### v0.1.0 (2025-10-31)
-
-#### ✨ 新功能
-- 实现 Nginx 进程管理功能
-- 实现配置文件解析和管理
-- 集成 Monaco Editor 文本编辑器
-- 实现日志查看功能
-- 实现应用设置页面
-- 添加主题切换功能
-- 添加"打开文件"功能
-
-#### 🔧 改进
-- 优化配置文件解析逻辑
-- 优化 UI 交互体验
-- 优化日志显示格式
-- 优化深色主题样式
-
-#### 🐛 修复
-- 修复 Windows GBK 编码问题
-- 修复配置文件路径解析问题
-- 修复弹窗高度溢出问题
-- 修复 Location 标签显示问题
+查看完整的更新历史，请访问 [CHANGELOG.md](CHANGELOG.md)。
 
 ---
 
-**⭐ ⭐ ⭐**
+**⭐ Star ⭐**

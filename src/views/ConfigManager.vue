@@ -14,7 +14,7 @@
               </n-button>
             </template>
           </n-input>
-          <n-button type="primary" @click="loadConfig" :loading="configStore.loading" :disabled="!localConfigPath">
+          <n-button type="primary" @click="loadConfig(true)" :loading="configStore.loading" :disabled="!localConfigPath">
             <template #icon>
               <n-icon :component="RefreshOutline" />
             </template>
@@ -49,6 +49,13 @@
                 <n-icon :component="AddOutline" />
               </template>
               新增 Server
+            </n-button>
+
+            <n-button type="info" @click="handleReloadConfig" :loading="isReloading" :disabled="!settingsStore.settings.nginxPath">
+              <template #icon>
+                <n-icon :component="ReloadOutline" />
+              </template>
+              重载配置
             </n-button>
           </n-space>
 
@@ -118,8 +125,8 @@
           </n-space>
 
           <!-- Locations 列表 -->
-          <n-space align="center" v-if="getFilteredLocations(server).length > 0">
-            <n-text strong style="width: 100px">Location:
+          <n-space align="center">
+            <n-text strong>location:
 
               <n-input v-if="server.locations && server.locations.length > 0"
                 v-model:value="locationSearchQueries[server.id]" placeholder="搜索" size="tiny" style="width: 150px"
@@ -129,7 +136,7 @@
                 </template>
               </n-input>
             </n-text>
-            <n-space>
+            <n-space v-if="getFilteredLocations(server).length > 0">
               <n-popover
                 v-for="location in getFilteredLocations(server)"
                 :key="location.id"
@@ -200,7 +207,8 @@
         borderRadius: '4px',
         overflowY: 'auto',
         maxHeight: 'calc(85vh - 150px)',
-        border: '1px solid var(--n-border-color)'
+        border: '1px solid var(--n-border-color)',
+        fontFamily: 'Consolas, PingFang SC, monospace'
       }">{{ detailContent }}</pre>
     </n-modal>
 
@@ -219,6 +227,7 @@
           theme: 'vs-dark',
           minimap: { enabled: false },
           fontSize: 14,
+          fontFamily: 'Consolas, PingFang SC, monospace',
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
           automaticLayout: true,
@@ -283,15 +292,18 @@ import {
   AddOutline,
   OpenOutline,
   CodeSlashOutline,
+  ReloadOutline,
 } from '@vicons/ionicons5';
 import { formatNginxConfig } from '@/utils/nginxFormatter';
 import { useLogStore } from '@/stores/log';
+import { useNginxStore } from '@/stores/nginx';
 
 const message = useMessage();
 const dialog = useDialog();
 const configStore = useConfigStore();
 const settingsStore = useSettingsStore();
 const logStore = useLogStore();
+const nginxStore = useNginxStore();
 
 const localConfigPath = ref('');
 
@@ -311,6 +323,9 @@ const detailContent = ref('');
 
 // 格式化整个配置文件的加载状态
 const isFormatting = ref(false);
+
+// 重载配置的加载状态
+const isReloading = ref(false);
 
 // 初始化时加载配置路径
 onMounted(async () => {
@@ -351,7 +366,7 @@ const selectConfigFile = async () => {
 };
 
 // 加载配置
-const loadConfig = async () => {
+const loadConfig = async (showTips = false) => {
   if (!localConfigPath.value) {
     message.warning('请先选择配置文件');
     return;
@@ -363,7 +378,9 @@ const loadConfig = async () => {
     // 保存配置路径到设置
     settingsStore.updateConfigPath(localConfigPath.value);
 
-    message.success('配置文件加载成功');
+    if (showTips) {
+      message.success('配置文件加载成功');
+    }
   } else {
     message.error(result.message || '配置文件加载失败');
   }
@@ -383,6 +400,34 @@ const openConfigFile = async () => {
     message.success(result);
   } catch (error) {
     message.error(`打开文件失败: ${error}`);
+  }
+};
+
+// 重载配置
+const handleReloadConfig = async () => {
+  const nginxPath = settingsStore.settings.nginxPath;
+  if (!nginxPath) {
+    message.warning('请先在设置中配置 Nginx 路径');
+    return;
+  }
+
+  try {
+    isReloading.value = true;
+    logStore.info('正在重载配置...');
+    const result = await nginxStore.reload(nginxPath);
+
+    if (result?.success) {
+      message.success(result.message);
+      logStore.success(result.message);
+    } else {
+      message.error(result?.message || '重载配置失败');
+      logStore.error(result?.message || '重载配置失败');
+    }
+  } catch (error) {
+    message.error(`重载配置失败: ${error}`);
+    logStore.error(`重载配置失败: ${error}`);
+  } finally {
+    isReloading.value = false;
   }
 };
 
