@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
-use std::thread;
 use std::time::Duration;
+use tokio::time::sleep;
 
 #[cfg(target_os = "windows")]
 use encoding_rs::GBK;
@@ -149,7 +149,7 @@ pub fn get_nginx_process_count() -> u32 {
 
 /// 检查 Nginx 状态
 #[tauri::command]
-pub fn check_nginx_status() -> Result<NginxStatus, String> {
+pub async fn check_nginx_status() -> Result<NginxStatus, String> {
     let is_running = is_nginx_running();
     let process_count = if is_running {
         get_nginx_process_count()
@@ -172,7 +172,7 @@ pub fn check_nginx_status() -> Result<NginxStatus, String> {
 
 /// 启动 Nginx
 #[tauri::command]
-pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
+pub async fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
     if nginx_path.is_empty() {
         return Ok(OperationResult {
             success: false,
@@ -223,7 +223,7 @@ pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
         match start_result {
             Ok(_) => {
                 // 等待 2 秒让 Nginx 启动
-                thread::sleep(Duration::from_secs(2));
+                sleep(Duration::from_secs(2)).await;
 
                 if is_nginx_running() {
                     Ok(OperationResult {
@@ -275,7 +275,7 @@ pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
 
         match output {
             Ok(_) => {
-                thread::sleep(Duration::from_secs(2));
+                sleep(Duration::from_secs(2)).await;
 
                 if is_nginx_running() {
                     Ok(OperationResult {
@@ -299,7 +299,7 @@ pub fn start_nginx(nginx_path: String) -> Result<OperationResult, String> {
 
 /// 停止 Nginx
 #[tauri::command]
-pub fn stop_nginx() -> Result<OperationResult, String> {
+pub async fn stop_nginx() -> Result<OperationResult, String> {
     if !is_nginx_running() {
         return Ok(OperationResult {
             success: false,
@@ -316,7 +316,7 @@ pub fn stop_nginx() -> Result<OperationResult, String> {
 
         match output {
             Ok(_) => {
-                thread::sleep(Duration::from_secs(1));
+                sleep(Duration::from_secs(1)).await;
 
                 if !is_nginx_running() {
                     Ok(OperationResult {
@@ -345,7 +345,7 @@ pub fn stop_nginx() -> Result<OperationResult, String> {
 
         match output {
             Ok(_) => {
-                thread::sleep(Duration::from_secs(1));
+                sleep(Duration::from_secs(1)).await;
 
                 if !is_nginx_running() {
                     Ok(OperationResult {
@@ -369,7 +369,7 @@ pub fn stop_nginx() -> Result<OperationResult, String> {
 
 /// 重启 Nginx
 #[tauri::command]
-pub fn restart_nginx(nginx_path: String) -> Result<OperationResult, String> {
+pub async fn restart_nginx(nginx_path: String) -> Result<OperationResult, String> {
     if nginx_path.is_empty() {
         return Ok(OperationResult {
             success: false,
@@ -379,19 +379,19 @@ pub fn restart_nginx(nginx_path: String) -> Result<OperationResult, String> {
 
     // 先停止
     if is_nginx_running() {
-        let stop_result = stop_nginx()?;
+        let stop_result = stop_nginx().await?;
         if !stop_result.success {
             return Ok(stop_result);
         }
     }
 
     // 再启动
-    start_nginx(nginx_path)
+    start_nginx(nginx_path).await
 }
 
 /// 重新加载配置
 #[tauri::command]
-pub fn reload_nginx(nginx_path: String) -> Result<OperationResult, String> {
+pub async fn reload_nginx(nginx_path: String) -> Result<OperationResult, String> {
     if nginx_path.is_empty() {
         return Ok(OperationResult {
             success: false,
@@ -492,7 +492,7 @@ pub fn reload_nginx(nginx_path: String) -> Result<OperationResult, String> {
 
 /// 测试 Nginx 配置
 #[tauri::command]
-pub fn test_nginx_config(nginx_path: String) -> Result<OperationResult, String> {
+pub async fn test_nginx_config(nginx_path: String) -> Result<OperationResult, String> {
     if nginx_path.is_empty() {
         return Ok(OperationResult {
             success: false,
@@ -577,7 +577,7 @@ pub fn test_nginx_config(nginx_path: String) -> Result<OperationResult, String> 
 
 /// 测试指定配置文件的 Nginx 配置
 #[tauri::command]
-pub fn test_nginx_config_file(nginx_path: String, config_path: String) -> Result<OperationResult, String> {
+pub async fn test_nginx_config_file(nginx_path: String, config_path: String) -> Result<OperationResult, String> {
     if nginx_path.is_empty() {
         return Ok(OperationResult {
             success: false,

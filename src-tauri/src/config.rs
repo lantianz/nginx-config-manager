@@ -58,7 +58,7 @@ pub struct ParseResult {
 
 /// 读取配置文件
 #[tauri::command]
-pub fn read_config_file(config_path: String) -> Result<ParseResult, String> {
+pub async fn read_config_file(config_path: String) -> Result<ParseResult, String> {
     if config_path.is_empty() {
         return Ok(ParseResult {
             success: false,
@@ -366,7 +366,7 @@ pub struct EditResult {
 
 /// 新增 Server 块
 #[tauri::command]
-pub fn add_server_block(
+pub async fn add_server_block(
     config_path: String,
     server_input: ServerBlockInput,
 ) -> Result<EditResult, String> {
@@ -413,7 +413,7 @@ pub fn add_server_block(
 
 /// 更新 Server 块
 #[tauri::command]
-pub fn update_server_block(
+pub async fn update_server_block(
     config_path: String,
     server_id: String,
     server_input: ServerBlockInput,
@@ -495,7 +495,7 @@ pub fn update_server_block(
 
 /// 删除 Server 块
 #[tauri::command]
-pub fn delete_server_block(
+pub async fn delete_server_block(
     config_path: String,
     server_id: String,
 ) -> Result<EditResult, String> {
@@ -543,7 +543,7 @@ pub fn delete_server_block(
 
 /// 在 Server 块中添加 Location 块
 #[tauri::command]
-pub fn add_location_to_server(
+pub async fn add_location_to_server(
     config_path: String,
     server_id: String,
     location_input: LocationBlockInput,
@@ -654,7 +654,7 @@ fn find_http_block(lines: &[&str]) -> Result<(usize, usize), String> {
 
 /// 生成添加 Server 块后的新配置内容（不保存到文件）
 #[tauri::command]
-pub fn generate_add_server_content(
+pub async fn generate_add_server_content(
     config_path: String,
     server_text: String,
 ) -> Result<String, String> {
@@ -699,12 +699,12 @@ pub fn generate_add_server_content(
 
 /// 添加 Server 块（文本格式）- 先校验再保存
 #[tauri::command]
-pub fn add_server_block_text(
+pub async fn add_server_block_text(
     config_path: String,
     server_text: String,
 ) -> Result<EditResult, String> {
     // 生成新配置内容
-    let new_content = generate_add_server_content(config_path.clone(), server_text)?;
+    let new_content = generate_add_server_content(config_path.clone(), server_text).await?;
 
     // 写入配置文件
     fs::write(&config_path, new_content)
@@ -718,7 +718,7 @@ pub fn add_server_block_text(
 
 /// 生成更新 Server 块后的新配置内容（不保存到文件）
 #[tauri::command]
-pub fn generate_update_server_content(
+pub async fn generate_update_server_content(
     config_path: String,
     server_id: String,
     server_text: String,
@@ -764,13 +764,13 @@ pub fn generate_update_server_content(
 
 /// 更新 Server 块（文本格式）- 先校验再保存
 #[tauri::command]
-pub fn update_server_block_text(
+pub async fn update_server_block_text(
     config_path: String,
     server_id: String,
     server_text: String,
 ) -> Result<EditResult, String> {
     // 生成新配置内容
-    let new_content = generate_update_server_content(config_path.clone(), server_id, server_text)?;
+    let new_content = generate_update_server_content(config_path.clone(), server_id, server_text).await?;
 
     // 写入配置文件
     fs::write(&config_path, new_content)
@@ -784,7 +784,7 @@ pub fn update_server_block_text(
 
 /// 将内容写入临时文件用于校验
 #[tauri::command]
-pub fn write_temp_config_for_validation(
+pub async fn write_temp_config_for_validation(
     original_config_path: String,
     new_content: String,
 ) -> Result<String, String> {
@@ -816,7 +816,7 @@ pub fn write_temp_config_for_validation(
 
 /// 删除临时配置文件
 #[tauri::command]
-pub fn delete_temp_config(temp_path: String) -> Result<(), String> {
+pub async fn delete_temp_config(temp_path: String) -> Result<(), String> {
     if temp_path.contains(".nginx_temp_") {
         let _ = fs::remove_file(&temp_path);
     }
@@ -825,14 +825,14 @@ pub fn delete_temp_config(temp_path: String) -> Result<(), String> {
 
 /// 读取配置文件原始内容（用于格式化）
 #[tauri::command]
-pub fn read_config_file_content(config_path: String) -> Result<String, String> {
+pub async fn read_config_file_content(config_path: String) -> Result<String, String> {
     fs::read_to_string(&config_path)
         .map_err(|e| format!("读取配置文件失败: {}", e))
 }
 
 /// 写入格式化后的配置文件
 #[tauri::command]
-pub fn write_formatted_config(
+pub async fn write_formatted_config(
     config_path: String,
     formatted_content: String,
 ) -> Result<EditResult, String> {

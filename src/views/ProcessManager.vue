@@ -90,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   NCard,
@@ -128,14 +128,20 @@ const configPath = ref('');
 
 const status = computed(() => nginxStore.status);
 
-// 初始化
-onMounted(async () => {
-  await settingsStore.loadSettings();
-  nginxPath.value = settingsStore.settings.nginxPath;
-  configPath.value = settingsStore.settings.configPath;
-  // 不再自动刷新状态，只在应用首次启动时刷新（在 AppLayout.vue 中）
-  // 用户可以通过点击"刷新状态"按钮手动刷新
+// 初始化：触发设置加载（AppLayout 已加载过则直接响应 watch）
+onMounted(() => {
+  settingsStore.loadSettings();
 });
+
+// 响应式同步设置到本地路径（settings 加载完成后自动触发）
+watch(
+  () => settingsStore.settings,
+  (s) => {
+    nginxPath.value = s.nginxPath;
+    configPath.value = s.configPath;
+  },
+  { immediate: true, deep: true }
+);
 
 // 路径变更处理
 const handlePathChange = () => {
@@ -206,118 +212,49 @@ const handleRefreshStatus = async () => {
 };
 
 // 启动 Nginx
-const handleStart = async () => {
+const handleStart = () => {
   if (!nginxPath.value) {
     message.warning('请先设置 Nginx 路径');
     return;
   }
-
-  try {
-    logStore.info('正在启动 Nginx...');
-    const result = await nginxStore.start(nginxPath.value);
-
-    if (result?.success) {
-      message.success(result.message);
-      logStore.success(result.message);
-    } else {
-      message.error(result?.message || '启动失败');
-      logStore.error(result?.message || '启动失败');
-    }
-  } catch (error) {
-    message.error('启动失败');
-    logStore.error(`启动失败: ${error}`);
-  }
+  logStore.info('正在启动 Nginx...');
+  nginxStore.start(nginxPath.value);
 };
 
 // 停止 Nginx
-const handleStop = async () => {
-  try {
-    logStore.info('正在停止 Nginx...');
-    const result = await nginxStore.stop();
-
-    if (result?.success) {
-      message.success(result.message);
-      logStore.success(result.message);
-    } else {
-      message.error(result?.message || '停止失败');
-      logStore.error(result?.message || '停止失败');
-    }
-  } catch (error) {
-    message.error('停止失败');
-    logStore.error(`停止失败: ${error}`);
-  }
+const handleStop = () => {
+  logStore.info('正在停止 Nginx...');
+  nginxStore.stop();
 };
 
 // 重启 Nginx
-const handleRestart = async () => {
+const handleRestart = () => {
   if (!nginxPath.value) {
     message.warning('请先设置 Nginx 路径');
     return;
   }
-
-  try {
-    logStore.info('正在重启 Nginx...');
-    const result = await nginxStore.restart(nginxPath.value);
-
-    if (result?.success) {
-      message.success(result.message);
-      logStore.success(result.message);
-    } else {
-      message.error(result?.message || '重启失败');
-      logStore.error(result?.message || '重启失败');
-    }
-  } catch (error) {
-    message.error('重启失败');
-    logStore.error(`重启失败: ${error}`);
-  }
+  logStore.info('正在重启 Nginx...');
+  nginxStore.restart(nginxPath.value);
 };
 
 // 重载配置
-const handleReload = async () => {
+const handleReload = () => {
   if (!nginxPath.value) {
     message.warning('请先设置 Nginx 路径');
     return;
   }
-
-  try {
-    logStore.info('正在重载配置...');
-    const result = await nginxStore.reload(nginxPath.value);
-
-    if (result?.success) {
-      message.success(result.message);
-      logStore.success(result.message);
-    } else {
-      message.error(result?.message || '重载失败');
-      logStore.error(result?.message || '重载失败');
-    }
-  } catch (error) {
-    message.error('重载失败');
-    logStore.error(`重载失败: ${error}`);
-  }
+  logStore.info('正在重载配置...');
+  nginxStore.reload(nginxPath.value);
 };
 
 // 校验配置
-const handleTestConfig = async () => {
+const handleTestConfig = () => {
   if (!nginxPath.value) {
     message.warning('请先设置 Nginx 路径');
     return;
   }
-
-  try {
-    logStore.info('正在校验配置...');
-    const result = await nginxStore.testConfig(nginxPath.value);
-
-    if (result?.success) {
-      message.success('配置校验通过');
-      logStore.success(result.message);
-    } else {
-      message.error('配置校验失败');
-      logStore.error(result?.message || '配置校验失败');
-    }
-  } catch (error) {
-    message.error('校验配置失败');
-    logStore.error(`校验配置失败: ${error}`);
-  }
+  logStore.info('正在校验配置...');
+  nginxStore.testConfig(nginxPath.value);
 };
 </script>
 

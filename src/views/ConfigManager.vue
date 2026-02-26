@@ -260,7 +260,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import {
   useMessage,
   useDialog,
@@ -325,18 +325,21 @@ const detailContent = ref('');
 const isFormatting = ref(false);
 
 // 初始化时加载配置路径
-onMounted(async () => {
-  // 先加载 settings
-  await settingsStore.loadSettings();
-
-  // 从 settings 中获取配置文件路径
-  localConfigPath.value = settingsStore.settings.configPath;
-
-  // 如果有配置路径，自动加载
-  if (localConfigPath.value) {
-    loadConfig();
-  }
+onMounted(() => {
+  settingsStore.loadSettings();
 });
+
+// 响应设置加载完成，自动填充路径并加载配置
+watch(
+  () => settingsStore.settings.configPath,
+  (path) => {
+    if (path && !localConfigPath.value) {
+      localConfigPath.value = path;
+      loadConfig();
+    }
+  },
+  { immediate: true }
+);
 
 // 选择配置文件
 const selectConfigFile = async () => {
@@ -401,28 +404,14 @@ const openConfigFile = async () => {
 };
 
 // 重载配置
-const handleReloadConfig = async () => {
+const handleReloadConfig = () => {
   const nginxPath = settingsStore.settings.nginxPath;
   if (!nginxPath) {
     message.warning('请先在设置中配置 Nginx 路径');
     return;
   }
-
-  try {
-    logStore.info('正在重载配置...');
-    const result = await nginxStore.reload(nginxPath);
-
-    if (result?.success) {
-      message.success(result.message);
-      logStore.success(result.message);
-    } else {
-      message.error(result?.message || '重载失败');
-      logStore.error(result?.message || '重载失败');
-    }
-  } catch (error) {
-    message.error('重载失败');
-    logStore.error(`重载失败: ${error}`);
-  }
+  logStore.info('正在重载配置...');
+  nginxStore.reload(nginxPath);
 };
 
 // 选择 server

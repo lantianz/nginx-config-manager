@@ -2,9 +2,10 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import type { NginxStatus } from '../types/nginx';
+import { eventBus, EVENTS } from '../composables/useEventBus';
+import type { NginxOperationResult } from '../composables/useEventBus';
 
 export const useNginxStore = defineStore('nginx', () => {
-  // 状态
   const status = ref<NginxStatus>({
     isRunning: false,
     processCount: 0,
@@ -12,7 +13,7 @@ export const useNginxStore = defineStore('nginx', () => {
 
   const isLoading = ref(false);
 
-  // 检查 Nginx 状态
+  // 检查 Nginx 状态（保持 async，供刷新按钮直接调用）
   const checkStatus = async () => {
     try {
       isLoading.value = true;
@@ -30,89 +31,45 @@ export const useNginxStore = defineStore('nginx', () => {
     }
   };
 
-  // 启动 Nginx
-  const start = async (nginxPath: string) => {
-    try {
-      isLoading.value = true;
-      const result = await invoke<{ success: boolean; message: string }>('start_nginx', { nginxPath });
-      await checkStatus();
-      return result;
-    } catch (error) {
-      console.error('启动失败:', error);
-      throw error;
-    } finally {
-      isLoading.value = false;
-    }
+  /**
+   * 内部调度：fire-and-forget 执行操作，完成后 emit 结果事件并异步刷新状态
+   */
+  const _dispatch = (
+    operation: NginxOperationResult['operation'],
+    promise: Promise<{ success: boolean; message: string }>,
+  ) => {
+    isLoading.value = true;
+    promise
+      .then(result => {
+        eventBus.emit<NginxOperationResult>(EVENTS.NGINX_OPERATION_RESULT, { ...result, operation });
+        checkStatus(); // 异步刷新状态，不阻塞
+      })
+      .catch(error => {
+        eventBus.emit<NginxOperationResult>(EVENTS.NGINX_OPERATION_RESULT, {
+          success: false,
+          message: String(error),
+          operation,
+        });
+      })
+      .finally(() => {
+        isLoading.value = false;
+      });
   };
 
-  // 停止 Nginx
-  const stop = async () => {
-    try {
-      isLoading.value = true;
-      const result = await invoke<{ success: boolean; message: string }>('stop_nginx');
-      await checkStatus();
-      return result;
-    } catch (error) {
-      console.error('停止失败:', error);
-      throw error;
-    } finally {
-      isLoading.value = false;
-    }
-  };
+  const start = (nginxPath: string) =>
+    _dispatch('start', invoke('start_nginx', { nginxPath }));
 
-  // 重启 Nginx
-  const restart = async (nginxPath: string) => {
-    try {
-      isLoading.value = true;
-      const result = await invoke<{ success: boolean; message: string }>('restart_nginx', { nginxPath });
-      await checkStatus();
-      return result;
-    } catch (error) {
-      console.error('重启失败:', error);
-      throw error;
-    } finally {
-      isLoading.value = false;
-    }
-  };
+  const stop = () =>
+    _dispatch('stop', invoke('stop_nginx'));
 
-  // 重载配置
-  const reload = async (nginxPath: string) => {
-    try {
-      isLoading.value = true;
-      const result = await invoke<{ success: boolean; message: string }>('reload_nginx', { nginxPath });
-      await checkStatus();
-      return result;
-    } catch (error) {
-      console.error('重载失败:', error);
-      throw error;
-    } finally {
-      isLoading.value = false;
-    }
-  };
+  const restart = (nginxPath: string) =>
+    _dispatch('restart', invoke('restart_nginx', { nginxPath }));
 
-  // 校验配置
-  const testConfig = async (nginxPath: string) => {
-    try {
-      isLoading.value = true;
-      const result = await invoke<{ success: boolean; message: string }>('test_nginx_config', { nginxPath });
-      return result;
-    } catch (error) {
-      console.error('校验配置失败:', error);
-      throw error;
-    } finally {
-      isLoading.value = false;
-    }
-  };
+  const reload = (nginxPath: string) =>
+    _dispatch('reload', invoke('reload_nginx', { nginxPath }));
 
-  return {
-    status,
-    isLoading,
-    checkStatus,
-    start,
-    stop,
-    restart,
-    reload,
-    testConfig,
-  };
+  const testConfig = (nginxPath: string) =>
+    _dispatch('test', invoke('test_nginx_config', { nginxPath }));
+
+  return { status, isLoading, checkStatus, start, stop, restart, reload, testConfig };
 });
-

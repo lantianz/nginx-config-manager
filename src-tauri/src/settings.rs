@@ -40,7 +40,7 @@ fn get_settings_path() -> Result<PathBuf, String> {
 
 /// 保存应用设置
 #[tauri::command]
-pub fn save_app_settings(settings: AppSettings) -> Result<bool, String> {
+pub async fn save_app_settings(settings: AppSettings) -> Result<bool, String> {
     let settings_path = get_settings_path()?;
     
     let json = serde_json::to_string_pretty(&settings)
@@ -54,7 +54,7 @@ pub fn save_app_settings(settings: AppSettings) -> Result<bool, String> {
 
 /// 加载应用设置
 #[tauri::command]
-pub fn load_app_settings() -> Result<AppSettings, String> {
+pub async fn load_app_settings() -> Result<AppSettings, String> {
     let settings_path = get_settings_path()?;
     
     if !settings_path.exists() {

@@ -1,12 +1,14 @@
 {
   "name": "nginx-config-manager",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "scripts": {
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "tauri:build-flat": "powershell -ExecutionPolicy Bypass -File ./build-flat.ps1",
+    "release": "powershell -ExecutionPolicy Bypass -File ./release.ps1",
+    "release:bump": "powershell -ExecutionPolicy Bypass -File ./release.ps1 -Bump",
+    "release:build": "powershell -ExecutionPolicy Bypass -File ./release.ps1 -Build",
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
@@ -29,5 +31,8 @@
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
     "vue-tsc": "^2.1.10"
+  },
+  "volta": {
+    "node": "20.19.6"
   }
 }

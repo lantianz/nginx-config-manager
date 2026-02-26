@@ -2,7 +2,7 @@ use std::path::Path;
 
 /// 使用系统默认程序打开文件
 #[tauri::command]
-pub fn open_file_in_system(file_path: String) -> Result<String, String> {
+pub async fn open_file_in_system(file_path: String) -> Result<String, String> {
     let path = Path::new(&file_path);
     
     // 检查文件是否存在

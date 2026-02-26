@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import type { NginxConfig, ServerBlock, LocationBlock } from '@/types/config';
 import { useLogStore } from './log';
+import { eventBus, EVENTS } from '@/composables/useEventBus';
 
 interface ParseResult {
   success: boolean;
@@ -161,6 +162,7 @@ export const useConfigStore = defineStore('config', {
           // 记录日志
           logStore.info(`配置文件加载成功: ${configPath}`);
 
+          eventBus.emit(EVENTS.CONFIG_LOADED, { success: true });
           return { success: true };
         } else {
           this.error = result.message || '未知错误';
@@ -169,6 +171,7 @@ export const useConfigStore = defineStore('config', {
           // 记录错误日志
           logStore.error(`配置文件加载失败: ${configPath} - ${result.message}`);
 
+          eventBus.emit(EVENTS.CONFIG_LOADED, { success: false, message: result.message });
           return { success: false, message: result.message };
         }
       } catch (error) {
@@ -180,6 +183,7 @@ export const useConfigStore = defineStore('config', {
         // 记录错误日志
         logStore.error(`${errorMsg} (路径: ${configPath})`);
 
+        eventBus.emit(EVENTS.CONFIG_LOADED, { success: false, message: errorMsg });
         return { success: false, message: errorMsg };
       } finally {
         this.loading = false;

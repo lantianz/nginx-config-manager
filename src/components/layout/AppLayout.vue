@@ -3,6 +3,8 @@
     <n-message-provider :container-style="{ top: '40px' }">
       <n-dialog-provider>
         <n-notification-provider :container-style="{ top: '40px' }">
+          <!-- 全局消息处理（持久存在，不随页面切换卸载） -->
+          <GlobalNotification />
           <!-- 自定义标题栏 -->
           <TitleBar :is-dark="isDark" />
 
@@ -69,7 +71,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, h, watch, onMounted } from "vue";
+import { ref, computed, h, watch } from "vue";
 import { useRouter } from "vue-router";
 import {
   NConfigProvider,
@@ -99,6 +101,7 @@ import {
   SunnyOutline,
 } from "@vicons/ionicons5";
 import TitleBar from "./TitleBar.vue";
+import GlobalNotification from "../GlobalNotification.vue";
 import { useNginxStore } from "../../stores/nginx";
 import { useSettingsStore } from "../../stores/settings";
 
@@ -136,19 +139,20 @@ watch(
   { immediate: true }
 );
 
-// 初始化时加载主题设置
-onMounted(async () => {
-  await settingsStore.loadSettings();
-  const savedTheme = settingsStore.settings.theme;
-  if (savedTheme === "dark") {
-    isDark.value = true;
-  } else if (savedTheme === "light") {
-    isDark.value = false;
-  } else {
-    // auto: 根据系统主题
-    isDark.value = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  }
-});
+// 初始化时加载主题设置（响应式 watch，无需 await 阻塞）
+watch(
+  () => settingsStore.settings.theme,
+  (savedTheme) => {
+    if (savedTheme === 'dark') {
+      isDark.value = true;
+    } else if (savedTheme === 'light') {
+      isDark.value = false;
+    } else {
+      isDark.value = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+  },
+  { immediate: true }
+);
 
 // Nginx 状态
 const nginxStatus = computed(() => {
@@ -204,13 +208,10 @@ router.afterEach((to) => {
   }
 });
 
-// 初始化
-const init = async () => {
-  await settingsStore.loadSettings();
-  await nginxStore.checkStatus();
-
-  // 设置初始主题
-  isDark.value = settingsStore.settings.theme === "dark";
+// 初始化：并行触发设置加载和状态检查，互不阻塞
+const init = () => {
+  settingsStore.loadSettings();
+  nginxStore.checkStatus();
 };
 
 init();
