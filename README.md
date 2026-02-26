@@ -5,18 +5,23 @@
 ## 📸 截图预览
 
 ### 1. 进程管理
+
 ![进程管理](readme/img/1.png)
 
 ### 2. 配置管理
+
 ![配置管理](readme/img/2.png)
 
 ### 3. 操作日志
+
 ![操作日志](readme/img/3.png)
 
 ### 4. 应用设置
+
 ![应用设置](readme/img/4.png)
 
 ### 5. 黑色主题
+
 ![黑色主题](readme/img/5.png)
 
 ## 📖 项目介绍
@@ -35,6 +40,7 @@ Nginx 管理工具是一款专为 Windows 平台设计的桌面应用程序，�
 ## 🛠️ 技术栈
 
 ### 前端技术
+
 - **框架**：Vue 3 (Composition API)
 - **语言**：TypeScript
 - **UI 库**：Naive UI
@@ -45,6 +51,7 @@ Nginx 管理工具是一款专为 Windows 平台设计的桌面应用程序，�
 - **构建工具**：Vite
 
 ### 后端技术
+
 - **框架**：Tauri 2
 - **语言**：Rust
 - **序列化**：Serde
@@ -53,18 +60,21 @@ Nginx 管理工具是一款专为 Windows 平台设计的桌面应用程序，�
 ## ✨ 功能特性
 
 ### 1. Nginx 进程管理
+
 - 实时显示 Nginx 进程状态（运行中/已停止）
 - 一键启动、停止、重启 Nginx 服务
 - 支持重载配置（无需重启服务）
 - 自动检测进程状态变化
 
 ### 2. 配置文件管理
+
 - 解析并展示 Nginx 配置文件结构
 - 以卡片形式展示每个 Server 块
 - 显示关键信息：监听端口、域名、Location 列表
 - 支持搜索功能，快速定位 Server 块
 
 ### 3. Server 块操作
+
 - **查看详情**：查看 Server 块的原始配置
 - **编辑配置**：使用 Monaco Editor 编辑 Server 块
 - **新增 Server**：提供模板，快速创建新的 Server 块
@@ -72,22 +82,26 @@ Nginx 管理工具是一款专为 Windows 平台设计的桌面应用程序，�
 - **打开文件**：使用系统默认程序打开配置文件
 
 ### 4. Location 标签交互
+
 - 鼠标悬浮显示 Location 的完整配置
 - 配置内容保持原始格式，支持横向滚动
 
 ### 5. 日志查看
+
 - 实时查看 Nginx 错误日志
 - 支持日志级别过滤（全部/错误/警告/信息）
 - 自动滚动到最新日志
 - 日志内容自动换行，便于阅读
 
 ### 6. 应用设置
+
 - 主题切换：浅色、深色、跟随系统
 - 路径配置：Nginx 可执行文件路径、配置文件路径
 - 应用信息：版本号、技术栈、开发者信息
 - 更新日志：查看版本历史和功能更新
 
 ### 7. 用户体验优化
+
 - 自定义滚动条样式
 - UI 元素文字不可选中（提升专业感）
 - 禁用右键菜单
@@ -106,8 +120,8 @@ Nginx 管理工具是一款专为 Windows 平台设计的桌面应用程序，�
 
 从 [Releases](https://github.com/lantianz/nginx-config-manager/releases) 页面下载最新版本的安装包：
 
-- **推荐**：`nginx-config-manager_0.2.0_x64-setup.exe` (NSIS 安装包)
-- **备选**：`nginx-config-manager_0.2.0_x64_en-US.msi` (MSI 安装包)
+- **推荐**：`nginx-config-manager_0.0.1_x64-setup.exe` (NSIS 安装包)
+- **备选**：`nginx-config-manager_0.0.1_x64_en-US.msi` (MSI 安装包)
 
 ### 安装步骤
 
@@ -166,9 +180,9 @@ npm run tauri build
 ```
 src-tauri/target/release/bundle/
 ├── msi/
-│   └── nginx-config-manager_0.2.0_x64_en-US.msi
+│   └── nginx-config-manager_0.0.1_x64_en-US.msi
 └── nsis/
-    └── nginx-config-manager_0.2.0_x64-setup.exe
+    └── nginx-config-manager_0.0.1_x64-setup.exe
 ```
 
 ### 安装包类型

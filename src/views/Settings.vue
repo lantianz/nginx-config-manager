@@ -52,9 +52,11 @@ import {
 } from 'naive-ui';
 import { LogoGithub } from '@vicons/ionicons5';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { getVersion } from '@tauri-apps/api/app';
 
-// 应用版本
-const appVersion = ref('0.2.0');
+// 应用版本（从 Tauri 运行时读取，与 tauri.conf.json 保持一致）
+const appVersion = ref('');
+getVersion().then(v => { appVersion.value = v; });
 
 // 打开 GitHub 链接
 const openGitHub = async (e: Event) => {
