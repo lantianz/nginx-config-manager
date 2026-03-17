@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -139,6 +139,20 @@ fn build_powershell_command(script: &str) -> Command {
             "-Command",
             script,
         ]);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn build_hidden_command(program: &str) -> Command {
+    let mut command = Command::new(program);
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(target_os = "windows")]
+fn build_hidden_nginx_command(program: &str) -> Command {
+    let mut command = build_hidden_command(program);
+    command.stdin(Stdio::null());
     command
 }
 
@@ -339,6 +353,10 @@ fn is_permission_denied_output(text: &str) -> bool {
     lowered.contains("access is denied")
         || text.contains("拒绝访问")
         || text.contains("权限不足")
+}
+
+fn is_nginx_signal_access_denied(text: &str) -> bool {
+    text.contains("OpenEvent(\"Global\\ngx_") && is_permission_denied_output(text)
 }
 
 fn is_process_not_found_output(text: &str) -> bool {
@@ -603,7 +621,7 @@ pub async fn start_nginx(nginx_path: String) -> Result<OperationResult, String> 
         let (nginx_exe, working_dir) = parse_nginx_path(&nginx_path);
 
         // 先校验配置是否正确
-        let test_output = Command::new(&nginx_exe)
+        let test_output = build_hidden_nginx_command(&nginx_exe)
             .args(["-t"])
             .current_dir(&working_dir)
             .output();
@@ -627,8 +645,10 @@ pub async fn start_nginx(nginx_path: String) -> Result<OperationResult, String> 
         }
 
         // 启动 Nginx
-        let start_result = Command::new(&nginx_exe)
+        let start_result = build_hidden_nginx_command(&nginx_exe)
             .current_dir(&working_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn();
 
         match start_result {
@@ -820,7 +840,7 @@ pub async fn reload_nginx(nginx_path: String) -> Result<OperationResult, String>
     #[cfg(target_os = "windows")]
     {
         let (nginx_exe, working_dir) = parse_nginx_path(&nginx_path);
-        let output = Command::new(&nginx_exe)
+        let output = build_hidden_nginx_command(&nginx_exe)
             .args(["-s", "reload"])
             .current_dir(&working_dir)
             .output();
@@ -846,10 +866,33 @@ pub async fn reload_nginx(nginx_path: String) -> Result<OperationResult, String>
                     } else {
                         stdout
                     };
-                    Ok(OperationResult {
-                        success: false,
-                        message: format!("✗ 配置重新加载失败:\n{}", error_msg),
-                    })
+
+                    if is_nginx_signal_access_denied(&error_msg) {
+                        let restart_result = restart_nginx(nginx_path.clone()).await?;
+                        if restart_result.success {
+                            Ok(OperationResult {
+                                success: true,
+                                message: format!(
+                                    "检测到当前运行中的 Nginx 与应用权限上下文不一致，已自动改为重启方式使配置生效。\n\n{}",
+                                    restart_result.message
+                                ),
+                            })
+                        } else {
+                            Ok(OperationResult {
+                                success: false,
+                                message: format!(
+                                    "✗ 配置重新加载失败，且自动重启接管也失败:\n{}\n\n{}",
+                                    error_msg,
+                                    restart_result.message
+                                ),
+                            })
+                        }
+                    } else {
+                        Ok(OperationResult {
+                            success: false,
+                            message: format!("✗ 配置重新加载失败:\n{}", error_msg),
+                        })
+                    }
                 }
             }
             Err(e) => Ok(OperationResult {
@@ -914,7 +957,7 @@ pub async fn test_nginx_config(nginx_path: String) -> Result<OperationResult, St
     #[cfg(target_os = "windows")]
     {
         let (nginx_exe, working_dir) = parse_nginx_path(&nginx_path);
-        let output = Command::new(&nginx_exe)
+        let output = build_hidden_nginx_command(&nginx_exe)
             .args(["-t"])
             .current_dir(&working_dir)
             .output();

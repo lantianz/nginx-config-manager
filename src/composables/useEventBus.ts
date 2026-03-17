@@ -24,11 +24,19 @@ export interface NginxOperationResult {
   operation: 'start' | 'stop' | 'restart' | 'reload' | 'test';
 }
 
+export interface ConfigOperationResult {
+  level: 'success' | 'warning' | 'error' | 'info';
+  message: string;
+  operation: 'toggle-server-state';
+}
+
 // ---- 事件名常量 ----
 
 export const EVENTS = {
   /** Nginx 操作（启动/停止/重启/重载/校验）完成 */
   NGINX_OPERATION_RESULT: 'nginx:operation-result',
+  /** 配置管理操作（如启用/停用 Server）完成 */
+  CONFIG_OPERATION_RESULT: 'config:operation-result',
   /** 应用设置加载完成 */
   SETTINGS_LOADED: 'settings:loaded',
   /** 配置文件加载完成 */

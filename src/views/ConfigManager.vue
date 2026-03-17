@@ -221,6 +221,7 @@ import {
 } from "@vicons/ionicons5";
 import ServerCodeModal from "@/components/config/ServerCodeModal.vue";
 import ServerSummaryCard from "@/components/config/ServerSummaryCard.vue";
+import { eventBus, EVENTS } from "@/composables/useEventBus";
 import { useConfigStore } from "@/stores/config";
 import { useLogStore } from "@/stores/log";
 import { useNginxStore } from "@/stores/nginx";
@@ -251,6 +252,17 @@ const categoryName = ref("");
 const originalCategoryName = ref("");
 const isFormatting = ref(false);
 const pendingAutoLoadPath = ref<string | null>(null);
+
+const emitConfigOperationResult = (
+  level: "success" | "warning" | "error" | "info",
+  messageText: string,
+) => {
+  eventBus.emit(EVENTS.CONFIG_OPERATION_RESULT, {
+    level,
+    message: messageText,
+    operation: "toggle-server-state",
+  });
+};
 
 const categoryOptions = computed(() =>
   configStore.availableCategories.map((category) => ({
@@ -521,11 +533,15 @@ const validateGeneratedConfig = async (newContent: string, title: string) => {
   }
 };
 
-const reloadNginxAfterConfigChange = async (actionText: string) => {
+const reloadNginxAfterConfigChange = async (
+  actionText: string,
+): Promise<{ level: "success" | "warning"; message: string }> => {
   const nginxPath = settingsStore.settings.nginxPath;
   if (!nginxPath || !nginxStore.status.isRunning) {
-    message.success(`${actionText}成功，Nginx 当前未运行，未执行重载`);
-    return;
+    return {
+      level: "success",
+      message: `${actionText}成功，Nginx 当前未运行，未执行重载`,
+    };
   }
 
   const reloadResult = await invoke<{ success: boolean; message: string }>(
@@ -536,20 +552,65 @@ const reloadNginxAfterConfigChange = async (actionText: string) => {
   );
 
   if (reloadResult.success) {
-    message.success(`${actionText}成功，已自动重载 Nginx`);
-    logStore.success(`${actionText}成功，已自动重载 Nginx`);
     await nginxStore.checkStatus().catch(() => undefined);
-    return;
+    return {
+      level: "success",
+      message: `${actionText}成功，已自动重载 Nginx`,
+    };
   }
 
-  dialog.error({
-    title: "Nginx 重载失败",
-    content: reloadResult.message,
-    positiveText: "知道了",
-    style: { width: "640px" },
-  });
-  message.warning(`${actionText}成功，但 Nginx 重载失败`);
-  logStore.warning(`${actionText}成功，但重载失败: ${reloadResult.message}`);
+  return {
+    level: "warning",
+    message: `${actionText}成功，但 Nginx 重载失败：${reloadResult.message}`,
+  };
+};
+
+const executeToggleServerState = async (
+  server: ServerBlock,
+  targetEnabled: boolean,
+  actionText: string,
+) => {
+  try {
+    message.loading(`正在${actionText}...`, { duration: 0 });
+    const newContent = await invoke<string>(
+      "generate_toggle_server_state_content",
+      {
+        configPath: localConfigPath.value,
+        serverId: server.id,
+        enabled: targetEnabled,
+      },
+    );
+
+    message.destroyAll();
+    const valid = await validateGeneratedConfig(
+      newContent,
+      `${actionText}失败，配置校验未通过`,
+    );
+    if (!valid) {
+      return;
+    }
+
+    const result = await invoke<{ success: boolean; message: string }>(
+      "set_server_enabled_state",
+      {
+        configPath: localConfigPath.value,
+        serverId: server.id,
+        enabled: targetEnabled,
+      },
+    );
+
+    if (!result.success) {
+      emitConfigOperationResult("error", `${actionText}失败：${result.message}`);
+      return;
+    }
+
+    await configStore.loadConfig(localConfigPath.value);
+    const notice = await reloadNginxAfterConfigChange(actionText);
+    emitConfigOperationResult(notice.level, notice.message);
+  } catch (error) {
+    message.destroyAll();
+    emitConfigOperationResult("error", `${actionText}失败：${error}`);
+  }
 };
 
 const handleToggleServerState = (server: ServerBlock) => {
@@ -563,49 +624,8 @@ const handleToggleServerState = (server: ServerBlock) => {
       : "停用后会将该 Server 块整段注释保留，并在 Nginx 运行时自动尝试重载。",
     positiveText: targetEnabled ? "恢复启用" : "临时停用",
     negativeText: "取消",
-    onPositiveClick: async () => {
-      try {
-        message.loading(`正在${actionText}...`, { duration: 0 });
-        const newContent = await invoke<string>(
-          "generate_toggle_server_state_content",
-          {
-            configPath: localConfigPath.value,
-            serverId: server.id,
-            enabled: targetEnabled,
-          },
-        );
-
-        message.destroyAll();
-        const valid = await validateGeneratedConfig(
-          newContent,
-          `${actionText}失败，配置校验未通过`,
-        );
-        if (!valid) {
-          return;
-        }
-
-        const result = await invoke<{ success: boolean; message: string }>(
-          "set_server_enabled_state",
-          {
-            configPath: localConfigPath.value,
-            serverId: server.id,
-            enabled: targetEnabled,
-          },
-        );
-
-        if (!result.success) {
-          message.error(result.message);
-          logStore.error(`${actionText}失败: ${result.message}`);
-          return;
-        }
-
-        await configStore.loadConfig(localConfigPath.value);
-        await reloadNginxAfterConfigChange(actionText);
-      } catch (error) {
-        message.destroyAll();
-        message.error(`${actionText}失败: ${error}`);
-        logStore.error(`${actionText}失败: ${error}`);
-      }
+    onPositiveClick: () => {
+      void executeToggleServerState(server, targetEnabled, actionText);
     },
   });
 };

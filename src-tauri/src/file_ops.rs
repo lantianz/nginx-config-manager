@@ -1,5 +1,11 @@
 use std::path::Path;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 /// 使用系统默认程序打开文件
 #[tauri::command]
 pub async fn open_file_in_system(file_path: String) -> Result<String, String> {
@@ -15,6 +21,7 @@ pub async fn open_file_in_system(file_path: String) -> Result<String, String> {
     {
         use std::process::Command;
         match Command::new("cmd")
+            .creation_flags(CREATE_NO_WINDOW)
             .args(&["/C", "start", "", &file_path])
             .spawn()
         {
@@ -47,4 +54,3 @@ pub async fn open_file_in_system(file_path: String) -> Result<String, String> {
         }
     }
 }
-

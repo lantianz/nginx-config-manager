@@ -6,7 +6,7 @@
 import { onUnmounted } from 'vue';
 import { useMessage } from 'naive-ui';
 import { eventBus, EVENTS } from '@/composables/useEventBus';
-import type { NginxOperationResult } from '@/composables/useEventBus';
+import type { ConfigOperationResult, NginxOperationResult } from '@/composables/useEventBus';
 import { useLogStore } from '@/stores/log';
 
 const message = useMessage();
@@ -20,7 +20,7 @@ const OPERATION_LABELS: Record<NginxOperationResult['operation'], string> = {
   test: '配置校验',
 };
 
-const off = eventBus.on<NginxOperationResult>(EVENTS.NGINX_OPERATION_RESULT, ({ success, message: msg, operation }) => {
+const offNginx = eventBus.on<NginxOperationResult>(EVENTS.NGINX_OPERATION_RESULT, ({ success, message: msg, operation }) => {
   const label = OPERATION_LABELS[operation] ?? operation;
   if (success) {
     message.success(msg || `${label}成功`);
@@ -31,5 +31,31 @@ const off = eventBus.on<NginxOperationResult>(EVENTS.NGINX_OPERATION_RESULT, ({ 
   }
 });
 
-onUnmounted(off);
+const offConfig = eventBus.on<ConfigOperationResult>(EVENTS.CONFIG_OPERATION_RESULT, ({ level, message: msg }) => {
+  if (level === 'success') {
+    message.success(msg);
+    logStore.success(msg);
+    return;
+  }
+
+  if (level === 'warning') {
+    message.warning(msg);
+    logStore.warning(msg);
+    return;
+  }
+
+  if (level === 'info') {
+    message.info(msg);
+    logStore.info(msg);
+    return;
+  }
+
+  message.error(msg);
+  logStore.error(msg);
+});
+
+onUnmounted(() => {
+  offNginx();
+  offConfig();
+});
 </script>
