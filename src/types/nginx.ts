@@ -10,6 +10,39 @@ export interface NginxStatus {
   lastOperation?: string;
 }
 
+export interface PermissionStatus {
+  isWindows: boolean;
+  isElevated: boolean;
+  message: string;
+}
+
+export interface PortProcessInfo {
+  protocol: string;
+  localAddress: string;
+  localPort: number;
+  pid: number;
+  processName: string;
+  executablePath?: string | null;
+  commandLine?: string | null;
+  user?: string | null;
+  status: string;
+  startTime?: string | null;
+}
+
+export interface PortInspectionResult {
+  port: number;
+  isOccupied: boolean;
+  entries: PortProcessInfo[];
+  permissionStatus: PermissionStatus;
+  message: string;
+}
+
+export interface ProcessOperationResult {
+  success: boolean;
+  message: string;
+  requiresElevation: boolean;
+}
+
 /**
  * Nginx 配置校验结果
  */
@@ -44,4 +77,3 @@ export const LogLevelColors = {
   warning: '#F0A020',   // 橙色
   error: '#D03050',     // 红色
 } as const;
-

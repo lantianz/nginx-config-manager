@@ -3,7 +3,19 @@ mod settings;
 mod config;
 mod file_ops;
 
-use nginx::{check_nginx_status, reload_nginx, restart_nginx, start_nginx, stop_nginx, test_nginx_config, test_nginx_config_file};
+use nginx::{
+    check_nginx_status,
+    check_process_permission_status,
+    inspect_ports,
+    reload_nginx,
+    release_port,
+    restart_nginx,
+    start_nginx,
+    stop_nginx,
+    terminate_process,
+    test_nginx_config,
+    test_nginx_config_file,
+};
 use settings::{load_app_settings, save_app_settings};
 use config::{
     read_config_file,
@@ -15,7 +27,9 @@ use config::{
     add_server_block_text,
     update_server_block_text,
     generate_add_server_content,
+    generate_toggle_server_state_content,
     generate_update_server_content,
+    set_server_enabled_state,
     write_temp_config_for_validation,
     delete_temp_config,
     write_formatted_config,
@@ -50,6 +64,10 @@ pub fn run() {
             check_nginx_status,
             test_nginx_config,
             test_nginx_config_file,
+            check_process_permission_status,
+            inspect_ports,
+            terminate_process,
+            release_port,
             save_app_settings,
             load_app_settings,
             read_config_file,
@@ -61,7 +79,9 @@ pub fn run() {
             add_server_block_text,
             update_server_block_text,
             generate_add_server_content,
+            generate_toggle_server_state_content,
             generate_update_server_content,
+            set_server_enabled_state,
             write_temp_config_for_validation,
             delete_temp_config,
             write_formatted_config,

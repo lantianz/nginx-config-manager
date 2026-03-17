@@ -20,6 +20,8 @@ export interface LocationBlock {
   rawContent: string;
   startLine: number;
   endLine: number;
+  relativeStartLine: number;
+  relativeEndLine: number;
 }
 
 /**
@@ -27,6 +29,8 @@ export interface LocationBlock {
  */
 export interface ServerBlock {
   id: string;
+  enabled: boolean;
+  category?: string | null;
   listen: string[];
   serverName: string[];
   locations: LocationBlock[];
@@ -72,4 +76,3 @@ export interface LocationFormData {
   index?: string;
   customDirectives: string;
 }
-

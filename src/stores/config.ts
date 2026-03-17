@@ -15,6 +15,8 @@ interface ConfigState {
   loading: boolean;
   error: string | null;
   searchQuery: string;
+  statusFilter: 'all' | 'enabled' | 'disabled';
+  categoryFilter: string | null;
   selectedServerId: string | null;
   selectedLocationId: string | null;
 }
@@ -25,6 +27,8 @@ export const useConfigStore = defineStore('config', {
     loading: false,
     error: null,
     searchQuery: '',
+    statusFilter: 'all',
+    categoryFilter: null,
     selectedServerId: null,
     selectedLocationId: null,
   }),
@@ -39,15 +43,33 @@ export const useConfigStore = defineStore('config', {
 
     /**
      * 获取过滤后的 server 块（根据搜索条件）
-     * 支持搜索：端口号、域名、location 路径
+     * 支持搜索：端口号、域名、location 路径、分类注释
      */
     filteredServers: (state): ServerBlock[] => {
-      if (!state.config || !state.searchQuery) {
-        return state.config?.servers || [];
+      if (!state.config) {
+        return [];
       }
 
-      const query = state.searchQuery.toLowerCase();
       return state.config.servers.filter((server) => {
+        const query = state.searchQuery.trim().toLowerCase();
+
+        const matchStatus =
+          state.statusFilter === 'all' ||
+          (state.statusFilter === 'enabled' && server.enabled) ||
+          (state.statusFilter === 'disabled' && !server.enabled);
+
+        const matchCategoryFilter =
+          !state.categoryFilter ||
+          (server.category || '').toLowerCase() === state.categoryFilter.toLowerCase();
+
+        if (!matchStatus || !matchCategoryFilter) {
+          return false;
+        }
+
+        if (!query) {
+          return true;
+        }
+
         // 搜索 listen 端口
         const matchListen = (server.listen || []).some((listen) =>
           listen.toLowerCase().includes(query)
@@ -58,13 +80,25 @@ export const useConfigStore = defineStore('config', {
           name.toLowerCase().includes(query)
         );
 
+        const matchCategory = (server.category || '').toLowerCase().includes(query);
+
         // 搜索 location 路径
         const matchLocation = (server.locations || []).some((location) =>
           location.path.toLowerCase().includes(query)
         );
 
-        return matchListen || matchServerName || matchLocation;
+        return matchListen || matchServerName || matchCategory || matchLocation;
       });
+    },
+
+    availableCategories: (state): string[] => {
+      if (!state.config) {
+        return [];
+      }
+
+      return state.config.servers
+        .map((server) => server.category?.trim())
+        .filter((category): category is string => Boolean(category));
     },
 
     /**
@@ -116,6 +150,14 @@ export const useConfigStore = defineStore('config', {
      */
     serverCount: (state): number => {
       return state.config?.servers.length || 0;
+    },
+
+    enabledServerCount: (state): number => {
+      return state.config?.servers.filter((server) => server.enabled).length || 0;
+    },
+
+    disabledServerCount: (state): number => {
+      return state.config?.servers.filter((server) => !server.enabled).length || 0;
     },
 
     /**
@@ -208,6 +250,8 @@ export const useConfigStore = defineStore('config', {
       this.config = null;
       this.error = null;
       this.searchQuery = '';
+      this.statusFilter = 'all';
+      this.categoryFilter = null;
       this.selectedServerId = null;
       this.selectedLocationId = null;
     },
@@ -217,6 +261,14 @@ export const useConfigStore = defineStore('config', {
      */
     setSearchQuery(query: string) {
       this.searchQuery = query;
+    },
+
+    setStatusFilter(filter: 'all' | 'enabled' | 'disabled') {
+      this.statusFilter = filter;
+    },
+
+    setCategoryFilter(category: string | null) {
+      this.categoryFilter = category;
     },
 
     /**

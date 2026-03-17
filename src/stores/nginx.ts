@@ -1,7 +1,12 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import type { NginxStatus } from '../types/nginx';
+import type {
+  NginxStatus,
+  PermissionStatus,
+  PortInspectionResult,
+  ProcessOperationResult,
+} from '../types/nginx';
 import { eventBus, EVENTS } from '../composables/useEventBus';
 import type { NginxOperationResult } from '../composables/useEventBus';
 
@@ -13,28 +18,34 @@ export const useNginxStore = defineStore('nginx', () => {
 
   const isLoading = ref(false);
 
-  // 检查 Nginx 状态（保持 async，供刷新按钮直接调用）
-  const checkStatus = async () => {
+  const runWithLoading = async <T>(task: () => Promise<T>) => {
+    isLoading.value = true;
     try {
-      isLoading.value = true;
-      const result = await invoke<{ is_running: boolean; process_count: number; message: string }>('check_nginx_status');
-      status.value = {
-        isRunning: result.is_running,
-        processCount: result.process_count,
-        lastOperation: result.message,
-      };
-    } catch (error) {
-      console.error('检查状态失败:', error);
-      throw error;
+      return await task();
     } finally {
       isLoading.value = false;
     }
   };
 
-  /**
-   * 内部调度：fire-and-forget 执行操作，完成后 emit 结果事件并异步刷新状态
-   */
-  const _dispatch = (
+  const refreshStatus = async () => {
+    const result = await invoke<{ is_running: boolean; process_count: number; message: string }>('check_nginx_status');
+    status.value = {
+      isRunning: result.is_running,
+      processCount: result.process_count,
+      lastOperation: result.message,
+    };
+  };
+
+  const checkStatus = async () => {
+    try {
+      await runWithLoading(refreshStatus);
+    } catch (error) {
+      console.error('检查状态失败:', error);
+      throw error;
+    }
+  };
+
+  const dispatch = (
     operation: NginxOperationResult['operation'],
     promise: Promise<{ success: boolean; message: string }>,
   ) => {
@@ -42,7 +53,9 @@ export const useNginxStore = defineStore('nginx', () => {
     promise
       .then(result => {
         eventBus.emit<NginxOperationResult>(EVENTS.NGINX_OPERATION_RESULT, { ...result, operation });
-        checkStatus(); // 异步刷新状态，不阻塞
+        refreshStatus().catch((error) => {
+          console.error('刷新 Nginx 状态失败:', error);
+        });
       })
       .catch(error => {
         eventBus.emit<NginxOperationResult>(EVENTS.NGINX_OPERATION_RESULT, {
@@ -57,19 +70,50 @@ export const useNginxStore = defineStore('nginx', () => {
   };
 
   const start = (nginxPath: string) =>
-    _dispatch('start', invoke('start_nginx', { nginxPath }));
+    dispatch('start', invoke('start_nginx', { nginxPath }));
 
   const stop = () =>
-    _dispatch('stop', invoke('stop_nginx'));
+    dispatch('stop', invoke('stop_nginx'));
 
   const restart = (nginxPath: string) =>
-    _dispatch('restart', invoke('restart_nginx', { nginxPath }));
+    dispatch('restart', invoke('restart_nginx', { nginxPath }));
 
   const reload = (nginxPath: string) =>
-    _dispatch('reload', invoke('reload_nginx', { nginxPath }));
+    dispatch('reload', invoke('reload_nginx', { nginxPath }));
 
   const testConfig = (nginxPath: string) =>
-    _dispatch('test', invoke('test_nginx_config', { nginxPath }));
+    dispatch('test', invoke('test_nginx_config', { nginxPath }));
 
-  return { status, isLoading, checkStatus, start, stop, restart, reload, testConfig };
+  const checkPermissionStatus = () =>
+    invoke<PermissionStatus>('check_process_permission_status');
+
+  const inspectPorts = (ports: number[]) =>
+    invoke<PortInspectionResult[]>('inspect_ports', { ports });
+
+  const terminateProcess = async (pid: number) => {
+    const result = await invoke<ProcessOperationResult>('terminate_process', { pid });
+    await refreshStatus().catch(() => undefined);
+    return result;
+  };
+
+  const releasePort = async (port: number) => {
+    const result = await invoke<ProcessOperationResult>('release_port', { port });
+    await refreshStatus().catch(() => undefined);
+    return result;
+  };
+
+  return {
+    status,
+    isLoading,
+    checkStatus,
+    start,
+    stop,
+    restart,
+    reload,
+    testConfig,
+    checkPermissionStatus,
+    inspectPorts,
+    terminateProcess,
+    releasePort,
+  };
 });

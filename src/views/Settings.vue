@@ -1,66 +1,96 @@
 <template>
   <div class="settings-page">
-    <n-space vertical :size="16">
-      <!-- 关于应用 -->
-      <n-card title="关于应用" :bordered="false">
-        <n-space vertical :size="16">
-          <n-descriptions :column="1" label-placement="left" bordered>
-            <n-descriptions-item label="应用名称">
-              <n-text strong>Nginx 管理工具</n-text>
-            </n-descriptions-item>
-            <n-descriptions-item label="应用版本">
-              <n-tag type="info">v{{ appVersion }}</n-tag>
-            </n-descriptions-item>
-            <n-descriptions-item label="应用描述">
-              一个基于 Tauri 的 Nginx 配置文件管理工具，提供进程管理、日志查看、配置编辑等功能
-            </n-descriptions-item>
-            <n-descriptions-item label="技术栈">
+    <div class="settings-scroll">
+      <section class="settings-card">
+        <div class="section-header">
+          <h3>基本设置</h3>
+        </div>
+
+        <RuntimeEnvironmentSection :show-descriptions="false" />
+
+        <div class="section-divider" />
+
+        <div class="preference-row">
+          <div class="preference-title">主题模式</div>
+          <n-radio-group v-model:value="themeModel" size="medium" name="theme-mode" class="theme-selector">
+            <n-radio-button value="light">浅色</n-radio-button>
+            <n-radio-button value="dark">深色</n-radio-button>
+            <n-radio-button value="auto">跟随系统</n-radio-button>
+          </n-radio-group>
+        </div>
+      </section>
+
+      <section class="settings-card">
+        <div class="section-header">
+          <h3>关于应用</h3>
+        </div>
+
+        <div class="about-list">
+          <div class="about-row">
+            <span class="about-label">版本</span>
+            <div class="about-value">
+              <n-tag type="info" round>v{{ appVersion }}</n-tag>
+            </div>
+          </div>
+
+          <div class="about-row">
+            <span class="about-label">技术栈</span>
+            <div class="about-value">
               <n-space>
-                <n-tag size="small">Vue 3</n-tag>
-                <n-tag size="small">Tauri 2</n-tag>
-                <n-tag size="small">Naive UI</n-tag>
-                <n-tag size="small">TypeScript</n-tag>
-                <n-tag size="small">Rust</n-tag>
+                <n-tag size="small" round>Vue 3</n-tag>
+                <n-tag size="small" round>Tauri 2</n-tag>
+                <n-tag size="small" round>Naive UI</n-tag>
+                <n-tag size="small" round>TypeScript</n-tag>
+                <n-tag size="small" round>Rust</n-tag>
               </n-space>
-            </n-descriptions-item>
-            <n-descriptions-item label="开发者">
-              <n-button text tag="a" href="https://github.com/lantianz" target="_blank" @click="openGitHub" style="padding: 0; font-size: 14px;">
+            </div>
+          </div>
+
+          <div class="about-row">
+            <span class="about-label">开发者</span>
+            <div class="about-value">
+              <n-button text tag="a" href="https://github.com/lantianz" target="_blank" @click="openGitHub" class="link-button">
                 <template #icon>
                   <n-icon :component="LogoGithub" />
                 </template>
                 lantianz
               </n-button>
-            </n-descriptions-item>
-          </n-descriptions>
-        </n-space>
-      </n-card>
-    </n-space>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
-import {
-  NCard,
-  NSpace,
-  NText,
-  NDescriptions,
-  NDescriptionsItem,
-  NTag,
-  NButton,
-  NIcon,
-} from 'naive-ui';
+import { computed, onMounted, ref } from 'vue';
+import { NButton, NIcon, NRadioButton, NRadioGroup, NSpace, NTag } from 'naive-ui';
 import { LogoGithub } from '@vicons/ionicons5';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { getVersion } from '@tauri-apps/api/app';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import RuntimeEnvironmentSection from '@/components/settings/RuntimeEnvironmentSection.vue';
+import { useSettingsStore } from '@/stores/settings';
 
-// 应用版本（从 Tauri 运行时读取，与 tauri.conf.json 保持一致）
+const settingsStore = useSettingsStore();
 const appVersion = ref('');
-getVersion().then(v => { appVersion.value = v; });
 
-// 打开 GitHub 链接
-const openGitHub = async (e: Event) => {
-  e.preventDefault();
+const themeModel = computed({
+  get: () => settingsStore.settings.theme,
+  set: (value: 'light' | 'dark' | 'auto') => {
+    settingsStore.updateTheme(value);
+  },
+});
+
+onMounted(async () => {
+  if (!settingsStore.isLoaded) {
+    await settingsStore.loadSettings();
+  }
+  appVersion.value = await getVersion();
+});
+
+const openGitHub = async (event: Event) => {
+  event.preventDefault();
   try {
     await openUrl('https://github.com/lantianz');
   } catch (error) {
@@ -71,6 +101,102 @@ const openGitHub = async (e: Event) => {
 
 <style scoped>
 .settings-page {
+  height: 100%;
+  overflow: hidden;
+}
+
+.settings-scroll {
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+.settings-card {
+  background: var(--surface-bg);
+  border: 1px solid var(--surface-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: blur(18px);
+  padding: 18px;
+}
+
+.section-header {
+  margin-bottom: 14px;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-primary);
+}
+
+.section-divider {
+  height: 1px;
+  margin: 16px 0;
+  background: var(--surface-border);
+}
+
+.preference-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.preference-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.theme-selector {
+  justify-self: start;
+}
+
+.about-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.about-row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--surface-border);
+}
+
+.about-row:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+
+.about-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.about-value {
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.link-button {
   padding: 0;
+  font-size: 14px;
+}
+
+@media (max-width: 860px) {
+  .preference-row,
+  .about-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 }
 </style>

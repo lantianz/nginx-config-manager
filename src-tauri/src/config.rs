@@ -21,6 +21,8 @@ pub struct LocationBlock {
     pub raw_content: String,
     pub start_line: usize,
     pub end_line: usize,
+    pub relative_start_line: usize,
+    pub relative_end_line: usize,
 }
 
 /// Server 配置块
@@ -28,6 +30,8 @@ pub struct LocationBlock {
 #[serde(rename_all = "camelCase")]
 pub struct ServerBlock {
     pub id: String,
+    pub enabled: bool,
+    pub category: Option<String>,
     pub listen: Vec<String>,
     pub server_name: Vec<String>,
     pub locations: Vec<LocationBlock>,
@@ -54,6 +58,116 @@ pub struct ParseResult {
     pub success: bool,
     pub message: String,
     pub config: Option<NginxConfig>,
+}
+
+const DISABLED_SERVER_BEGIN_MARKER: &str = "# nginx-config-manager managed-disabled-server begin";
+const DISABLED_SERVER_END_MARKER: &str = "# nginx-config-manager managed-disabled-server end";
+
+fn is_managed_disabled_server_start(line: &str) -> bool {
+    line == DISABLED_SERVER_BEGIN_MARKER
+}
+
+fn is_managed_disabled_server_end(line: &str) -> bool {
+    line == DISABLED_SERVER_END_MARKER
+}
+
+fn comment_out_line(line: &str) -> String {
+    if line.is_empty() {
+        "#".to_string()
+    } else {
+        format!("# {}", line)
+    }
+}
+
+fn uncomment_managed_line(line: &str) -> String {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with('#') {
+        return line.to_string();
+    }
+
+    let prefix_len = line.len() - trimmed.len();
+    let restored = if trimmed.len() <= 1 {
+        ""
+    } else if trimmed.as_bytes()[1] == b' ' {
+        &trimmed[2..]
+    } else {
+        &trimmed[1..]
+    };
+
+    format!("{}{}", &line[..prefix_len], restored)
+}
+
+fn wrap_disabled_server_block(server_text: &str) -> String {
+    let mut lines = Vec::new();
+    lines.push(DISABLED_SERVER_BEGIN_MARKER.to_string());
+    lines.extend(server_text.lines().map(comment_out_line));
+    lines.push(DISABLED_SERVER_END_MARKER.to_string());
+    lines.join("\n")
+}
+
+fn unwrap_disabled_server_block(disabled_text: &str) -> Result<String, String> {
+    let lines: Vec<&str> = disabled_text.lines().collect();
+
+    if lines.len() < 3 {
+        return Err("停用的 server 块格式不完整".to_string());
+    }
+
+    if !is_managed_disabled_server_start(lines[0].trim()) {
+        return Err("停用的 server 块缺少起始标记".to_string());
+    }
+
+    if !is_managed_disabled_server_end(lines[lines.len() - 1].trim()) {
+        return Err("停用的 server 块缺少结束标记".to_string());
+    }
+
+    Ok(lines[1..lines.len() - 1]
+        .iter()
+        .map(|line| uncomment_managed_line(line))
+        .collect::<Vec<String>>()
+        .join("\n"))
+}
+
+fn render_server_block_by_state(server_text: &str, enabled: bool) -> String {
+    if enabled {
+        server_text.to_string()
+    } else {
+        wrap_disabled_server_block(server_text)
+    }
+}
+
+fn replace_server_range(content: &str, start_line: usize, end_line: usize, replacement: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    let mut new_lines = Vec::new();
+
+    for i in 0..(start_line - 1) {
+        if i < lines.len() {
+            new_lines.push(lines[i].to_string());
+        }
+    }
+
+    for line in replacement.lines() {
+        new_lines.push(line.to_string());
+    }
+
+    for i in end_line..lines.len() {
+        new_lines.push(lines[i].to_string());
+    }
+
+    new_lines.join("\n")
+}
+
+fn parse_server_category(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with('#') {
+        return None;
+    }
+
+    let value = trimmed.trim_start_matches('#').trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 /// 读取配置文件
@@ -109,8 +223,21 @@ fn parse_nginx_config(content: &str, file_path: &str) -> Result<NginxConfig, Str
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i].trim();
-        
-        // 跳过空行和注释
+
+        if is_managed_disabled_server_start(line) {
+            match parse_disabled_server_block(&lines, i) {
+                Ok((server, end_line)) => {
+                    servers.push(server);
+                    i = end_line + 1;
+                }
+                Err(e) => {
+                    return Err(format!("解析停用的 server 块失败 (行 {}): {}", i + 1, e));
+                }
+            }
+            continue;
+        }
+
+        // 跳过空行和普通注释
         if line.is_empty() || line.starts_with('#') {
             i += 1;
             continue;
@@ -150,6 +277,8 @@ fn parse_server_block(lines: &[&str], start: usize) -> Result<(ServerBlock, usiz
     let mut server_name = Vec::new();
     let mut locations = Vec::new();
     let mut directives = Vec::new();
+    let mut category = None;
+    let mut seen_content = false;
     
     // 查找 server 块的结束位置
     let end = find_block_end(lines, start)?;
@@ -162,14 +291,22 @@ fn parse_server_block(lines: &[&str], start: usize) -> Result<(ServerBlock, usiz
     while i < end {
         let line = lines[i].trim();
         
-        // 跳过空行和注释
-        if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() {
+            i += 1;
+            continue;
+        }
+
+        if line.starts_with('#') {
+            if !seen_content && category.is_none() {
+                category = parse_server_category(line);
+            }
             i += 1;
             continue;
         }
         
         // 检测 location 块
         if line.starts_with("location") && line.contains('{') {
+            seen_content = true;
             match parse_location_block(lines, i) {
                 Ok((location, end_line)) => {
                     locations.push(location);
@@ -182,6 +319,7 @@ fn parse_server_block(lines: &[&str], start: usize) -> Result<(ServerBlock, usiz
         } else {
             // 解析指令
             if let Some(directive) = parse_directive(line, i + 1) {
+                seen_content = true;
                 // 特殊处理 listen 和 server_name
                 if directive.name == "listen" {
                     listen.push(directive.value.clone());
@@ -201,10 +339,16 @@ fn parse_server_block(lines: &[&str], start: usize) -> Result<(ServerBlock, usiz
     
     // 生成唯一 ID
     let id = format!("server_{}", start);
+    for location in &mut locations {
+        location.relative_start_line = location.start_line.saturating_sub(start);
+        location.relative_end_line = location.end_line.saturating_sub(start);
+    }
 
     Ok((
         ServerBlock {
             id,
+            enabled: true,
+            category,
             listen,
             server_name,
             locations,
@@ -215,6 +359,33 @@ fn parse_server_block(lines: &[&str], start: usize) -> Result<(ServerBlock, usiz
         },
         end,
     ))
+}
+
+fn find_disabled_server_end(lines: &[&str], start: usize) -> Result<usize, String> {
+    for i in (start + 1)..lines.len() {
+        if is_managed_disabled_server_end(lines[i].trim()) {
+            return Ok(i);
+        }
+    }
+
+    Err("未找到停用 server 块的结束标记".to_string())
+}
+
+fn parse_disabled_server_block(lines: &[&str], start: usize) -> Result<(ServerBlock, usize), String> {
+    let end = find_disabled_server_end(lines, start)?;
+    let disabled_text = lines[start..=end].join("\n");
+    let restored = unwrap_disabled_server_block(&disabled_text)?;
+    let restored_lines: Vec<String> = restored.lines().map(|line| line.to_string()).collect();
+    let restored_refs: Vec<&str> = restored_lines.iter().map(|line| line.as_str()).collect();
+    let (mut server, _) = parse_server_block(&restored_refs, 0)?;
+
+    server.id = format!("server_disabled_{}", start);
+    server.enabled = false;
+    server.raw_content = restored;
+    server.start_line = start + 1;
+    server.end_line = end + 1;
+
+    Ok((server, end))
 }
 
 /// 解析 location 块
@@ -266,6 +437,8 @@ fn parse_location_block(lines: &[&str], start: usize) -> Result<(LocationBlock, 
             raw_content,
             start_line: start + 1,
             end_line: end + 1,
+            relative_start_line: 0,
+            relative_end_line: 0,
         },
         end,
     ))
@@ -433,6 +606,10 @@ pub async fn update_server_block(
     // 生成新的 server 块内容
     let mut new_server_content = String::from("server {\n");
 
+    if let Some(category) = &server.category {
+        new_server_content.push_str(&format!("    # {}\n", category));
+    }
+
     // 添加 listen 指令
     for listen in &server_input.listen {
         new_server_content.push_str(&format!("    listen {};\n", listen));
@@ -459,29 +636,8 @@ pub async fn update_server_block(
     }
 
     new_server_content.push_str("}\n");
-
-    // 替换原有的 server 块
-    let lines: Vec<&str> = content.lines().collect();
-    let mut new_lines = Vec::new();
-
-    // 复制 server 块之前的内容
-    for i in 0..(server.start_line - 1) {
-        if i < lines.len() {
-            new_lines.push(lines[i].to_string());
-        }
-    }
-
-    // 添加新的 server 块内容
-    for line in new_server_content.lines() {
-        new_lines.push(line.to_string());
-    }
-
-    // 复制 server 块之后的内容
-    for i in server.end_line..lines.len() {
-        new_lines.push(lines[i].to_string());
-    }
-
-    let new_content = new_lines.join("\n");
+    let replacement = render_server_block_by_state(&new_server_content, server.enabled);
+    let new_content = replace_server_range(&content, server.start_line, server.end_line, &replacement);
 
     // 写入配置文件
     fs::write(&config_path, new_content)
@@ -735,31 +891,54 @@ pub async fn generate_update_server_content(
         .find(|s| s.id == server_id)
         .ok_or_else(|| format!("未找到 ID 为 {} 的 Server 块", server_id))?;
 
-    // 替换 server 块
-    let lines: Vec<&str> = content.lines().collect();
-    let mut new_lines = Vec::new();
-
-    // 复制 server 块之前的内容
-    for i in 0..(server.start_line - 1) {
-        if i < lines.len() {
-            new_lines.push(lines[i].to_string());
-        }
-    }
-
-    // 添加新的 server 块内容
-    for line in server_text.lines() {
-        new_lines.push(line.to_string());
-    }
-
-    // 复制 server 块之后的内容
-    for i in server.end_line..lines.len() {
-        if i < lines.len() {
-            new_lines.push(lines[i].to_string());
-        }
-    }
-
-    let new_content = new_lines.join("\n");
+    let replacement = render_server_block_by_state(&server_text, server.enabled);
+    let new_content = replace_server_range(&content, server.start_line, server.end_line, &replacement);
     Ok(new_content)
+}
+
+#[tauri::command]
+pub async fn generate_toggle_server_state_content(
+    config_path: String,
+    server_id: String,
+    enabled: bool,
+) -> Result<String, String> {
+    let content = fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取配置文件失败: {}", e))?;
+
+    let config = parse_nginx_config(&content, &config_path)
+        .map_err(|e| format!("解析配置文件失败: {}", e))?;
+
+    let server = config.servers.iter()
+        .find(|s| s.id == server_id)
+        .ok_or_else(|| format!("未找到 ID 为 {} 的 Server 块", server_id))?;
+
+    if server.enabled == enabled {
+        return Ok(content);
+    }
+
+    let replacement = render_server_block_by_state(&server.raw_content, enabled);
+    Ok(replace_server_range(&content, server.start_line, server.end_line, &replacement))
+}
+
+#[tauri::command]
+pub async fn set_server_enabled_state(
+    config_path: String,
+    server_id: String,
+    enabled: bool,
+) -> Result<EditResult, String> {
+    let new_content = generate_toggle_server_state_content(config_path.clone(), server_id, enabled).await?;
+
+    fs::write(&config_path, new_content)
+        .map_err(|e| format!("写入配置文件失败: {}", e))?;
+
+    Ok(EditResult {
+        success: true,
+        message: if enabled {
+            "Server 块已恢复启用".to_string()
+        } else {
+            "Server 块已临时停用".to_string()
+        },
+    })
 }
 
 /// 更新 Server 块（文本格式）- 先校验再保存
@@ -846,3 +1025,53 @@ pub async fn write_formatted_config(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_SERVER: &str = "    server {\n        listen 8080;\n        server_name demo.local;\n    }";
+
+    #[test]
+    fn wrap_and_unwrap_disabled_server_block_should_round_trip() {
+        let disabled = wrap_disabled_server_block(SAMPLE_SERVER);
+        let restored = unwrap_disabled_server_block(&disabled).expect("restore disabled block");
+
+        assert_eq!(restored, SAMPLE_SERVER);
+    }
+
+    #[test]
+    fn parse_nginx_config_should_keep_managed_disabled_servers() {
+        let disabled = wrap_disabled_server_block(SAMPLE_SERVER);
+        let content = format!("events {{}}\nhttp {{\n{}\n}}\n", disabled);
+
+        let config = parse_nginx_config(&content, "test.conf").expect("parse config");
+
+        assert_eq!(config.servers.len(), 1);
+        assert!(!config.servers[0].enabled);
+        assert_eq!(config.servers[0].listen, vec!["8080"]);
+        assert_eq!(config.servers[0].server_name, vec!["demo.local"]);
+    }
+
+    #[test]
+    fn parse_server_block_should_extract_category_and_relative_location_lines() {
+        let content = r#"http {
+    server {
+        # 位置能力服务
+        listen 8081;
+        server_name map.local;
+
+        location /api {
+            proxy_pass http://127.0.0.1:9000;
+        }
+    }
+}"#;
+
+        let config = parse_nginx_config(content, "test.conf").expect("parse config");
+        let server = &config.servers[0];
+        let location = &server.locations[0];
+
+        assert_eq!(server.category.as_deref(), Some("位置能力服务"));
+        assert_eq!(location.relative_start_line, 6);
+        assert_eq!(location.relative_end_line, 8);
+    }
+}
