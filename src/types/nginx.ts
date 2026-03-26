@@ -58,14 +58,55 @@ export interface TestResult {
  */
 export type LogLevel = 'info' | 'success' | 'warning' | 'error';
 
+export type LogKind = 'operation' | 'file-change';
+
+export type LogViewFilter = 'all' | 'file-change';
+
+export interface FileChangeScopeDiff {
+  label: string;
+  before: string;
+  after: string;
+}
+
+export interface FileChangeLogDetail {
+  operationLabel: string;
+  configPath: string;
+  savedAt: number;
+  fileDiff: FileChangeScopeDiff;
+  serverDiff?: FileChangeScopeDiff | null;
+  locationDiffs: FileChangeScopeDiff[];
+}
+
 /**
  * 操作日志条目
  */
-export interface LogEntry {
+interface BaseLogEntry {
   id: string;
   timestamp: Date;
   level: LogLevel;
-  message: string;
+  kind: LogKind;
+  summary: string;
+}
+
+export interface OperationLogEntry extends BaseLogEntry {
+  kind: 'operation';
+  detail?: undefined;
+}
+
+export interface FileChangeLogEntry extends BaseLogEntry {
+  kind: 'file-change';
+  detail: FileChangeLogDetail;
+}
+
+export type LogEntry = OperationLogEntry | FileChangeLogEntry;
+
+export interface StoredLogEntry {
+  id: string;
+  level: LogLevel;
+  timestampMs: number;
+  kind: LogKind;
+  summary: string;
+  detail?: FileChangeLogDetail;
 }
 
 /**

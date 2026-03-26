@@ -1,14 +1,18 @@
 <template>
   <div class="log-page">
     <section class="panel-card toolbar-panel">
-      <div class="toolbar-left">
+      <div class="toolbar-copy">
         <div>
           <h3>操作日志</h3>
-          <p>查看最近的操作轨迹，并按日志等级筛选。</p>
+          <p>查看运行轨迹和最近的配置文件变更，按需进入差异详情。</p>
         </div>
+
         <div class="stats-strip">
           <div class="stat-chip">
             <span>总计</span><strong>{{ logs.length }}</strong>
+          </div>
+          <div class="stat-chip">
+            <span>文件变更</span><strong>{{ fileChangeCount }}</strong>
           </div>
           <div class="stat-chip">
             <span>成功</span><strong>{{ successCount }}</strong>
@@ -16,20 +20,23 @@
           <div class="stat-chip">
             <span>错误</span><strong>{{ errorCount }}</strong>
           </div>
-          <div class="stat-chip">
-            <span>警告</span><strong>{{ warningCount }}</strong>
-          </div>
         </div>
       </div>
 
-      <div class="toolbar-right">
+      <div class="toolbar-actions">
+        <n-radio-group v-model:value="selectedView" size="small">
+          <n-radio-button value="all">全部日志</n-radio-button>
+          <n-radio-button value="file-change">仅看文件变更</n-radio-button>
+        </n-radio-group>
+
         <n-radio-group v-model:value="selectedLevel" size="small">
-          <n-radio-button value="all">全部</n-radio-button>
+          <n-radio-button value="all">全部等级</n-radio-button>
           <n-radio-button value="info">信息</n-radio-button>
           <n-radio-button value="success">成功</n-radio-button>
           <n-radio-button value="warning">警告</n-radio-button>
           <n-radio-button value="error">错误</n-radio-button>
         </n-radio-group>
+
         <n-button secondary size="small" @click="handleClearLogs">
           <template #icon>
             <n-icon :component="TrashOutline" />
@@ -44,35 +51,53 @@
         <div class="list-scroll">
           <n-empty
             v-if="filteredLogs.length === 0"
-            description="暂无日志记录"
+            description="暂无匹配的日志记录"
             class="page-empty"
           />
 
-          <n-timeline v-else>
-            <n-timeline-item
+          <div v-else class="log-list">
+            <article
               v-for="log in filteredLogs"
               :key="log.id"
-              :type="getTimelineType(log.level)"
-              :color="getLogColor(log.level)"
+              class="log-card"
+              :class="{ 'file-change-card': log.kind === 'file-change' }"
             >
-              <template #icon>
-                <n-icon :component="getLogIcon(log.level)" />
-              </template>
-
-              <div class="log-item">
-                <div class="log-header">
+              <div class="log-card-header">
+                <div class="log-card-main">
                   <n-tag :type="getTagType(log.level)" size="small" round>
                     {{ getLevelText(log.level) }}
                   </n-tag>
-                  <span class="log-time">{{ formatTime(log.timestamp) }}</span>
+                  <n-tag v-if="log.kind === 'file-change'" size="small" type="info" round>
+                    文件变更
+                  </n-tag>
+                  <span class="log-summary">{{ log.summary }}</span>
                 </div>
-                <div class="log-message">{{ log.message }}</div>
+                <span class="log-time">{{ formatTime(log.timestamp) }}</span>
               </div>
-            </n-timeline-item>
-          </n-timeline>
+
+              <div v-if="log.kind === 'file-change'" class="change-meta">
+                <div class="change-path allow-select">{{ log.detail.configPath }}</div>
+                <div class="change-scopes">
+                  <n-tag size="small" round>文件</n-tag>
+                  <n-tag v-if="log.detail.serverDiff" size="small" round>Server</n-tag>
+                  <n-tag v-if="log.detail.locationDiffs.length > 0" size="small" round>
+                    {{ log.detail.locationDiffs.length }} 个 Location
+                  </n-tag>
+                </div>
+              </div>
+
+              <div v-else class="log-message">{{ log.summary }}</div>
+
+              <div v-if="log.kind === 'file-change'" class="log-card-footer">
+                <n-button size="small" @click="openDetail(log)">查看变更</n-button>
+              </div>
+            </article>
+          </div>
         </div>
       </div>
     </section>
+
+    <LogDetailDrawer v-model:show="showDetailDrawer" :entry="selectedChangeLog" />
   </div>
 </template>
 
@@ -85,43 +110,43 @@ import {
   NRadioButton,
   NRadioGroup,
   NTag,
-  NTimeline,
-  NTimelineItem,
   useDialog,
   useMessage,
 } from "naive-ui";
-import {
-  CheckmarkCircleOutline,
-  CloseCircleOutline,
-  InformationCircleOutline,
-  TrashOutline,
-  WarningOutline,
-} from "@vicons/ionicons5";
+import { TrashOutline } from "@vicons/ionicons5";
+import LogDetailDrawer from "@/components/log/LogDetailDrawer.vue";
 import { useLogStore } from "@/stores/log";
-import type { LogLevel } from "@/types/nginx";
+import type { FileChangeLogEntry, LogEntry, LogLevel, LogViewFilter } from "@/types/nginx";
 
 const dialog = useDialog();
 const message = useMessage();
 const logStore = useLogStore();
 
 const selectedLevel = ref<"all" | LogLevel>("all");
+const selectedView = ref<LogViewFilter>("all");
+const showDetailDrawer = ref(false);
+const selectedChangeLog = ref<FileChangeLogEntry | null>(null);
+
 const logs = computed(() => logStore.logs);
 
 const filteredLogs = computed(() => {
-  if (selectedLevel.value === "all") {
-    return logs.value;
-  }
-  return logs.value.filter((log) => log.level === selectedLevel.value);
+  return logs.value.filter((log) => {
+    const matchView =
+      selectedView.value === "all" || log.kind === selectedView.value;
+    const matchLevel =
+      selectedLevel.value === "all" || log.level === selectedLevel.value;
+    return matchView && matchLevel;
+  });
 });
 
+const fileChangeCount = computed(
+  () => logs.value.filter((log) => log.kind === "file-change").length,
+);
 const successCount = computed(
   () => logs.value.filter((log) => log.level === "success").length,
 );
 const errorCount = computed(
   () => logs.value.filter((log) => log.level === "error").length,
-);
-const warningCount = computed(
-  () => logs.value.filter((log) => log.level === "warning").length,
 );
 
 const getLevelText = (level: LogLevel) =>
@@ -130,30 +155,6 @@ const getLevelText = (level: LogLevel) =>
     success: "成功",
     warning: "警告",
     error: "错误",
-  })[level];
-
-const getTimelineType = (level: LogLevel) =>
-  ({
-    info: "info",
-    success: "success",
-    warning: "warning",
-    error: "error",
-  })[level] as "info" | "success" | "warning" | "error";
-
-const getLogColor = (level: LogLevel) =>
-  ({
-    info: "#3b82f6",
-    success: "#10b981",
-    warning: "#f59e0b",
-    error: "#f43f5e",
-  })[level];
-
-const getLogIcon = (level: LogLevel) =>
-  ({
-    info: InformationCircleOutline,
-    success: CheckmarkCircleOutline,
-    warning: WarningOutline,
-    error: CloseCircleOutline,
   })[level];
 
 const getTagType = (level: LogLevel) =>
@@ -175,14 +176,25 @@ const formatTime = (timestamp: Date) => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 };
 
+const openDetail = (log: LogEntry) => {
+  if (log.kind !== "file-change") {
+    return;
+  }
+
+  selectedChangeLog.value = log;
+  showDetailDrawer.value = true;
+};
+
 const handleClearLogs = () => {
   dialog.warning({
     title: "确认清空",
     content: "确定要清空所有日志记录吗？此操作不可恢复。",
     positiveText: "确定",
     negativeText: "取消",
-    onPositiveClick: () => {
-      logStore.clear();
+    onPositiveClick: async () => {
+      showDetailDrawer.value = false;
+      selectedChangeLog.value = null;
+      await logStore.clear();
       message.success("日志已清空");
     },
   });
@@ -214,7 +226,7 @@ const handleClearLogs = () => {
   gap: 16px;
 }
 
-.toolbar-left {
+.toolbar-copy {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -222,20 +234,19 @@ const handleClearLogs = () => {
   flex: 1;
 }
 
-.toolbar-left h3 {
+.toolbar-copy h3 {
   margin: 0;
   font-size: 16px;
   color: var(--text-primary);
 }
 
-.toolbar-left p {
+.toolbar-copy p {
   margin: 6px 0 0;
   font-size: 13px;
   color: var(--text-secondary);
 }
 
-.toolbar-right {
-  width: fit-content;
+.toolbar-actions {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -250,7 +261,7 @@ const handleClearLogs = () => {
 }
 
 .stat-chip {
-  min-width: 78px;
+  min-width: 86px;
   padding: 4px 12px;
   border-radius: var(--radius-md);
   background: var(--surface-bg-soft);
@@ -293,22 +304,52 @@ const handleClearLogs = () => {
   margin: auto 0;
 }
 
-.log-item {
+.log-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
-.log-header {
+.log-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-bg-strong);
+  border: 1px solid var(--surface-border);
+}
+
+.file-change-card {
+  border-color: rgba(59, 130, 246, 0.16);
+}
+
+.log-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.log-card-main {
+  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
+}
+
+.log-summary {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 .log-time {
   font-size: 12px;
   color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 .log-message {
@@ -317,17 +358,45 @@ const handleClearLogs = () => {
   color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
-  user-select: text;
-  -webkit-user-select: text;
 }
 
-@media (max-width: 860px) {
-  .toolbar-panel {
+.change-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.change-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.change-scopes {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.log-card-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 980px) {
+  .toolbar-panel,
+  .toolbar-actions {
     flex-direction: column;
+    align-items: flex-start;
   }
 
-  .toolbar-right {
-    justify-content: flex-start;
+  .log-card-header,
+  .change-meta {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

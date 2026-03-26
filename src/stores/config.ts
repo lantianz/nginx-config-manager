@@ -1,6 +1,11 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
-import type { NginxConfig, ServerBlock, LocationBlock } from '@/types/config';
+import type {
+  ConfigSearchMode,
+  NginxConfig,
+  ServerBlock,
+  LocationBlock,
+} from '@/types/config';
 import { useLogStore } from './log';
 import { eventBus, EVENTS } from '@/composables/useEventBus';
 
@@ -15,11 +20,26 @@ interface ConfigState {
   loading: boolean;
   error: string | null;
   searchQuery: string;
+  searchMode: ConfigSearchMode;
   statusFilter: 'all' | 'enabled' | 'disabled';
   categoryFilter: string | null;
   selectedServerId: string | null;
   selectedLocationId: string | null;
 }
+
+const extractListenPort = (listen: string) => {
+  const endpoint = listen.trim().split(/\s+/)[0];
+  if (!endpoint || endpoint.startsWith('unix:')) {
+    return null;
+  }
+
+  if (/^\d+$/.test(endpoint)) {
+    return endpoint;
+  }
+
+  const portMatch = endpoint.match(/:(\d{1,5})$/);
+  return portMatch?.[1] ?? null;
+};
 
 export const useConfigStore = defineStore('config', {
   state: (): ConfigState => ({
@@ -27,6 +47,7 @@ export const useConfigStore = defineStore('config', {
     loading: false,
     error: null,
     searchQuery: '',
+    searchMode: 'keyword',
     statusFilter: 'all',
     categoryFilter: null,
     selectedServerId: null,
@@ -42,8 +63,7 @@ export const useConfigStore = defineStore('config', {
     },
 
     /**
-     * 获取过滤后的 server 块（根据搜索条件）
-     * 支持搜索：端口号、域名、location 路径、分类注释
+     * 获取过滤后的 server 块（根据搜索模式与筛选条件）
      */
     filteredServers: (state): ServerBlock[] => {
       if (!state.config) {
@@ -70,24 +90,20 @@ export const useConfigStore = defineStore('config', {
           return true;
         }
 
-        // 搜索 listen 端口
-        const matchListen = (server.listen || []).some((listen) =>
-          listen.toLowerCase().includes(query)
-        );
+        if (state.searchMode === 'port') {
+          return (server.listen || []).some((listen) => extractListenPort(listen) === query);
+        }
 
-        // 搜索 server_name
-        const matchServerName = (server.serverName || []).some((name) =>
-          name.toLowerCase().includes(query)
-        );
+        if (state.searchMode === 'location') {
+          return (server.locations || []).some((location) => {
+            const locationText = `${location.modifier ? `${location.modifier} ` : ''}${location.path}`
+              .trim()
+              .toLowerCase();
+            return locationText.includes(query);
+          });
+        }
 
-        const matchCategory = (server.category || '').toLowerCase().includes(query);
-
-        // 搜索 location 路径
-        const matchLocation = (server.locations || []).some((location) =>
-          location.path.toLowerCase().includes(query)
-        );
-
-        return matchListen || matchServerName || matchCategory || matchLocation;
+        return server.rawContent.toLowerCase().includes(query);
       });
     },
 
@@ -96,9 +112,21 @@ export const useConfigStore = defineStore('config', {
         return [];
       }
 
-      return state.config.servers
-        .map((server) => server.category?.trim())
-        .filter((category): category is string => Boolean(category));
+      const dedupedCategories = new Map<string, string>();
+
+      state.config.servers.forEach((server) => {
+        const category = server.category?.trim();
+        if (!category) {
+          return;
+        }
+
+        const normalizedCategory = category.toLowerCase();
+        if (!dedupedCategories.has(normalizedCategory)) {
+          dedupedCategories.set(normalizedCategory, category);
+        }
+      });
+
+      return Array.from(dedupedCategories.values());
     },
 
     /**
@@ -250,6 +278,7 @@ export const useConfigStore = defineStore('config', {
       this.config = null;
       this.error = null;
       this.searchQuery = '';
+      this.searchMode = 'keyword';
       this.statusFilter = 'all';
       this.categoryFilter = null;
       this.selectedServerId = null;
@@ -261,6 +290,10 @@ export const useConfigStore = defineStore('config', {
      */
     setSearchQuery(query: string) {
       this.searchQuery = query;
+    },
+
+    setSearchMode(mode: ConfigSearchMode) {
+      this.searchMode = mode;
     },
 
     setStatusFilter(filter: 'all' | 'enabled' | 'disabled') {

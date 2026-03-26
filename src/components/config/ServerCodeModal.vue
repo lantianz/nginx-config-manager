@@ -4,83 +4,67 @@
     preset="card"
     :title="title"
     class="server-code-modal"
-    :style="{ width: 'min(800px, calc(100vw - 32px))' }"
+    :style="{ width: 'min(1100px, calc(100vw - 32px))' }"
     :bordered="false"
     @update:show="handleShowChange"
   >
     <div class="server-code-shell">
-      <aside class="location-panel">
-        <div class="location-panel-header">
-          <span class="location-panel-title">Location 导航</span>
+      <div class="editor-toolbar">
+        <div class="editor-toolbar-main">
+          <n-select
+            v-if="locations.length > 0"
+            :value="activeLocationId"
+            filterable
+            clearable
+            :options="locationOptions"
+            placeholder="搜索并跳转到 location"
+            class="location-select"
+            @update:value="handleLocationSelect"
+          />
+          <div v-else class="location-empty">当前 Server 没有 location</div>
+        </div>
+
+        <div class="editor-toolbar-meta">
           <n-tag size="small" type="info" round>
-            {{ filteredLocations.length }}/{{ locations.length }}
+            {{ locations.length }} 个 location
+          </n-tag>
+          <n-tag v-if="activeLocation" size="small" round>
+            第 {{ activeLocation.relativeStartLine }} 行
           </n-tag>
         </div>
+      </div>
 
-        <div class="location-panel-toolbar" v-if="locations.length > 0">
+      <div v-if="categoryMode !== 'hidden'" class="category-section">
+        <div class="category-meta">
+          <span class="category-label">项目分类</span>
+        </div>
+
+        <div class="category-control">
           <n-input
-            v-model:value="locationQuery"
+            v-if="categoryMode === 'edit'"
+            v-model:value="categoryInput"
+            maxlength="40"
             clearable
-            size="small"
-            placeholder="搜索路径或行号"
-          >
-            <template #prefix>
-              <n-icon :component="SearchOutline" />
-            </template>
-          </n-input>
+            placeholder="输入项目分类，留空表示不设置"
+          />
+          <div v-else class="category-display" :class="{ empty: !categoryName }">
+            {{ categoryName || '未设置分类' }}
+          </div>
         </div>
-
-        <div class="location-panel-content">
-          <n-scrollbar class="location-panel-body">
-            <n-empty v-if="locations.length === 0" size="small" description="当前 Server 没有 location" />
-            <n-empty v-else-if="filteredLocations.length === 0" size="small" description="没有匹配的 location" />
-
-            <div v-else class="location-list">
-              <button
-                v-for="location in filteredLocations"
-                :key="location.id"
-                type="button"
-                class="location-jump-button"
-                :class="{ active: activeLocationId === location.id }"
-                @click="jumpToLocation(location)"
-              >
-                <div class="location-jump-content">
-                  <span class="location-jump-path">{{ buildLocationLabel(location) }}</span>
-                  <span class="location-jump-line">第 {{ location.relativeStartLine }} 行</span>
-                </div>
-              </button>
-            </div>
-          </n-scrollbar>
-        </div>
-      </aside>
+      </div>
 
       <div class="editor-panel">
         <div class="editor-panel-header">
           <span class="editor-panel-title">
             {{ activeLocation ? buildLocationLabel(activeLocation) : (readOnly ? 'Server 详情' : 'Server 编辑') }}
           </span>
-          <n-tag v-if="activeLocation" size="small" round>
-            第 {{ activeLocation.relativeStartLine }} 行
-          </n-tag>
-        </div>
-
-        <div v-if="categoryMode !== 'hidden'" class="category-section">
-          <div class="category-meta">
-            <span class="category-label">项目分类</span>
-          </div>
-
-          <div class="category-control">
-            <n-input
-              v-if="categoryMode === 'edit'"
-              v-model:value="categoryInput"
-              maxlength="40"
-              clearable
-              placeholder="输入项目分类，留空表示不设置"
-            />
-            <div v-else class="category-display" :class="{ empty: !categoryName }">
-              {{ categoryName || '未设置分类' }}
-            </div>
-          </div>
+          <span class="editor-panel-subtitle">
+            {{
+              activeLocation
+                ? `第 ${activeLocation.relativeStartLine} - ${activeLocation.relativeEndLine} 行`
+                : '支持直接查看、格式化与保存当前 Server 内容'
+            }}
+          </span>
         </div>
 
         <div class="editor-panel-content">
@@ -112,8 +96,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, shallowRef, watch } from 'vue';
-import { NButton, NEmpty, NIcon, NInput, NModal, NScrollbar, NSpace, NTag } from 'naive-ui';
-import { SearchOutline } from '@vicons/ionicons5';
+import { NButton, NInput, NModal, NSelect, NSpace, NTag } from 'naive-ui';
 import { VueMonacoEditor } from '@guolao/vue-monaco-editor';
 import type { LocationBlock } from '@/types/config';
 
@@ -173,27 +156,7 @@ interface CodeEditorLike {
 
 const editorInstance = shallowRef<CodeEditorLike | null>(null);
 const highlightCollection = shallowRef<EditorDecorationsCollectionLike | null>(null);
-const locationQuery = ref('');
 const activeLocationId = ref<string | null>(null);
-
-const filteredLocations = computed(() => {
-  const keyword = locationQuery.value.trim().toLowerCase();
-  if (!keyword) {
-    return props.locations;
-  }
-
-  return props.locations.filter((location) => {
-    const searchableText = [
-      location.path,
-      location.modifier || '',
-      String(location.relativeStartLine),
-    ]
-      .join(' ')
-      .toLowerCase();
-
-    return searchableText.includes(keyword);
-  });
-});
 
 const activeLocation = computed(() =>
   props.locations.find((location) => location.id === activeLocationId.value) ?? null
@@ -205,6 +168,13 @@ const categoryInput = computed({
     emit('update:categoryName', value);
   },
 });
+
+const locationOptions = computed(() =>
+  props.locations.map((location) => ({
+    label: `${buildLocationLabel(location)} · 第 ${location.relativeStartLine} 行`,
+    value: location.id,
+  }))
+);
 
 const editorTheme = computed(() => (document.body.classList.contains('dark') ? 'vs-dark' : 'vs'));
 
@@ -229,7 +199,6 @@ watch(
   () => props.show,
   async (show) => {
     if (show) {
-      locationQuery.value = '';
       activeLocationId.value = props.locations[0]?.id ?? null;
       await nextTick();
       if (props.locations[0]) {
@@ -243,7 +212,7 @@ watch(
 );
 
 watch(
-  filteredLocations,
+  () => props.locations,
   (locations) => {
     if (locations.some((location) => location.id === activeLocationId.value)) {
       return;
@@ -272,6 +241,22 @@ const handleEditorMount = (instance: CodeEditorLike) => {
   if (activeLocation.value) {
     jumpToLocation(activeLocation.value);
   }
+};
+
+const handleLocationSelect = (locationId: string | null) => {
+  activeLocationId.value = locationId;
+
+  if (!locationId) {
+    highlightCollection.value?.clear();
+    return;
+  }
+
+  const location = props.locations.find((item) => item.id === locationId);
+  if (!location) {
+    return;
+  }
+
+  jumpToLocation(location);
 };
 
 const jumpToLocation = (location: LocationBlock) => {
@@ -306,103 +291,57 @@ const jumpToLocation = (location: LocationBlock) => {
 
 <style scoped>
 .server-code-modal {
-  max-width: 800px;
-  max-height: min(82vh, 760px);
+  max-width: 1100px;
+  max-height: min(86vh, 840px);
 }
 
 .server-code-shell {
   display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 12px;
-  height: min(62vh, 560px);
-  min-height: 460px;
+  height: min(72vh, 680px);
+  min-height: 500px;
   overflow: hidden;
 }
 
-.location-panel {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--surface-bg-soft);
-  border: 1px solid var(--surface-border);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.location-panel-header {
+.editor-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 14px 14px 10px;
-}
-
-.location-panel-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.location-panel-toolbar {
-  padding: 0 14px 12px;
-}
-
-.location-panel-content {
-  flex: 1;
-  min-height: 0;
-  padding: 0 8px 12px 12px;
-  overflow: hidden;
-}
-
-.location-panel-body {
-  height: 100%;
-}
-
-.location-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.location-jump-button {
-  width: 100%;
+  gap: 12px;
   padding: 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.76);
-  text-align: left;
-  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  border-radius: var(--radius-lg);
+  background: var(--surface-bg-soft);
+  border: 1px solid var(--surface-border);
+  flex-wrap: wrap;
 }
 
-.location-jump-button:hover {
-  border-color: rgba(59, 130, 246, 0.22);
-  background: rgba(255, 255, 255, 0.94);
-  transform: translateY(-1px);
+.editor-toolbar-main {
+  min-width: 0;
+  flex: 1 1 360px;
 }
 
-.location-jump-button.active {
-  border-color: rgba(59, 130, 246, 0.28);
-  background: rgba(59, 130, 246, 0.12);
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.08);
+.location-select {
+  width: min(460px, 100%);
 }
 
-.location-jump-content {
+.location-empty {
+  min-height: 38px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.location-jump-path {
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.5;
-  color: var(--text-primary);
-  word-break: break-all;
-}
-
-.location-jump-line {
-  font-size: 12px;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--surface-border);
+  background: var(--surface-bg-strong);
   color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.editor-toolbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .editor-panel {
@@ -423,6 +362,7 @@ const jumpToLocation = (location: LocationBlock) => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .editor-panel-title {
@@ -433,6 +373,11 @@ const jumpToLocation = (location: LocationBlock) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.editor-panel-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .editor-panel-content {
@@ -446,9 +391,9 @@ const jumpToLocation = (location: LocationBlock) => {
 
 .category-section {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
+  grid-template-columns: 96px minmax(0, 1fr);
   gap: 12px;
-  align-items: start;
+  align-items: center;
   padding: 12px;
   border-radius: var(--radius-md);
   background: var(--surface-bg-soft);
@@ -517,17 +462,25 @@ const jumpToLocation = (location: LocationBlock) => {
 
 @media (max-width: 860px) {
   .server-code-shell {
-    grid-template-columns: 1fr;
-    height: min(72vh, 620px);
+    height: min(78vh, 720px);
   }
 
-  .location-panel {
-    max-height: 220px;
+  .editor-toolbar {
+    align-items: flex-start;
+  }
+
+  .location-select {
+    width: 100%;
   }
 
   .category-section {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .editor-panel-header {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

@@ -17,6 +17,20 @@
             </n-button>
             <n-button
               secondary
+              :disabled="
+                !settingsStore.settings.nginxPath ||
+                !nginxStore.status.isRunning
+              "
+              :loading="nginxStore.isLoading"
+              @click="handleReloadConfig"
+            >
+              <template #icon>
+                <n-icon :component="ReloadOutline" />
+              </template>
+              重载配置
+            </n-button>
+            <n-button
+              secondary
               :loading="isFormatting"
               :disabled="!localConfigPath || configStore.loading"
               @click="handleFormatEntireConfig"
@@ -36,10 +50,16 @@
         </div>
 
         <div class="filter-row" v-if="configStore.hasConfig">
+          <n-select
+            v-model:value="configStore.searchMode"
+            :options="searchModeOptions"
+            class="search-mode-select"
+          />
+
           <n-input
             v-model:value="configStore.searchQuery"
             clearable
-            placeholder="搜索端口、域名、分类或 location 路径"
+            :placeholder="searchPlaceholder"
             class="filter-search"
           >
             <template #prefix>
@@ -72,20 +92,6 @@
                 <n-icon :component="AddOutline" />
               </template>
               新增 Server
-            </n-button>
-            <n-button
-              secondary
-              :disabled="
-                !settingsStore.settings.nginxPath ||
-                !nginxStore.status.isRunning
-              "
-              :loading="nginxStore.isLoading"
-              @click="handleReloadConfig"
-            >
-              <template #icon>
-                <n-icon :component="ReloadOutline" />
-              </template>
-              重载配置
             </n-button>
             <n-button v-if="hasActiveFilters" quaternary @click="resetFilters"
               >清空筛选</n-button
@@ -132,13 +138,24 @@
           </p>
           <p v-else>如果已配置默认路径，页面会在进入时自动尝试加载。</p>
         </div>
-        <n-tag round size="small" type="info">
-          {{
-            configStore.hasConfig
-              ? `${configStore.filteredServers.length} 个结果`
-              : "等待加载配置"
-          }}
-        </n-tag>
+        <div class="list-panel-header-actions">
+          <div class="auto-reload-toggle">
+            <span class="auto-reload-label">保存后自动重载</span>
+            <n-switch
+              :value="settingsStore.settings.autoReloadAfterSave"
+              size="small"
+              @update:value="settingsStore.updateAutoReloadAfterSave"
+            />
+          </div>
+
+          <n-tag round size="small" type="info">
+            {{
+              configStore.hasConfig
+                ? `${configStore.filteredServers.length} 个结果`
+                : "等待加载配置"
+            }}
+          </n-tag>
+        </div>
       </div>
 
       <div class="list-panel-content">
@@ -163,7 +180,7 @@
                 @detail="openDetailModal(server)"
                 @edit="openEditServerModal(server)"
                 @toggle="handleToggleServerState(server)"
-                @delete="handleDeleteServer(server.id)"
+                @delete="handleDeleteServer(server)"
               />
             </template>
             <n-empty v-else description="请先加载配置文件" class="page-empty">
@@ -205,6 +222,7 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NSwitch,
   NTag,
   useDialog,
   useMessage,
@@ -226,11 +244,20 @@ import { useConfigStore } from "@/stores/config";
 import { useLogStore } from "@/stores/log";
 import { useNginxStore } from "@/stores/nginx";
 import { useSettingsStore } from "@/stores/settings";
-import type { ServerBlock } from "@/types/config";
+import type { ConfigSearchMode, ServerBlock } from "@/types/config";
 import {
   applyServerCategoryToContent,
   getCategoryLineDelta,
 } from "@/utils/nginxCategory";
+import {
+  buildFileChangeSummary,
+  buildLocationDiffs,
+  buildServerScopeLabel,
+  createFileChangeDetail,
+  extractLineRange,
+  removeLineRange,
+  renderManagedServerBlock,
+} from "@/utils/nginxDiff";
 import {
   formatNginxConfig,
   formatNginxServerBlock,
@@ -254,13 +281,14 @@ const isFormatting = ref(false);
 const pendingAutoLoadPath = ref<string | null>(null);
 
 const emitConfigOperationResult = (
+  operation: "toggle-server-state" | "save-server" | "save-server-reload",
   level: "success" | "warning" | "error" | "info",
   messageText: string,
 ) => {
   eventBus.emit(EVENTS.CONFIG_OPERATION_RESULT, {
+    operation,
     level,
     message: messageText,
-    operation: "toggle-server-state",
   });
 };
 
@@ -270,6 +298,24 @@ const categoryOptions = computed(() =>
     value: category,
   })),
 );
+
+const searchModeOptions = [
+  { label: "按端口", value: "port" },
+  { label: "按 location", value: "location" },
+  { label: "全局关键字", value: "keyword" },
+] satisfies Array<{ label: string; value: ConfigSearchMode }>;
+
+const searchPlaceholder = computed(() => {
+  if (configStore.searchMode === "port") {
+    return "按端口精确搜索，例如 80";
+  }
+
+  if (configStore.searchMode === "location") {
+    return "按 location 路径搜索，例如 /api";
+  }
+
+  return "按 Server 原文关键字搜索";
+});
 
 const hasActiveFilters = computed(() =>
   Boolean(
@@ -380,6 +426,49 @@ const ensureNginxPathConfigured = () => {
 
   message.warning("请先在应用设置中配置 Nginx 路径");
   return false;
+};
+
+const getCurrentConfigContent = async () => {
+  if (configStore.config?.rawContent) {
+    return configStore.config.rawContent;
+  }
+
+  return invoke<string>("read_config_file_content", {
+    configPath: localConfigPath.value,
+  });
+};
+
+const recordFileChangeLog = ({
+  operationLabel,
+  fileBefore,
+  fileAfter,
+  serverDiff,
+  locationDiffs,
+  targetLabel,
+}: {
+  operationLabel: string;
+  fileBefore: string;
+  fileAfter: string;
+  serverDiff?: { label: string; before: string; after: string } | null;
+  locationDiffs?: Array<{ label: string; before: string; after: string }>;
+  targetLabel?: string;
+}) => {
+  if (fileBefore === fileAfter) {
+    return;
+  }
+
+  logStore.recordFileChange(
+    "success",
+    buildFileChangeSummary(operationLabel, localConfigPath.value, targetLabel),
+    createFileChangeDetail({
+      operationLabel,
+      configPath: localConfigPath.value,
+      fileBefore,
+      fileAfter,
+      serverDiff: serverDiff ?? null,
+      locationDiffs,
+    }),
+  );
 };
 
 const resetFilters = () => {
@@ -565,6 +654,58 @@ const reloadNginxAfterConfigChange = async (
   };
 };
 
+const triggerReloadAfterSave = (actionText: string) => {
+  const nginxPath = settingsStore.settings.nginxPath;
+
+  if (!nginxPath || !nginxStore.status.isRunning) {
+    emitConfigOperationResult(
+      "save-server",
+      "success",
+      `${actionText}成功，Nginx 当前未运行，未执行重载`,
+    );
+    return;
+  }
+
+  emitConfigOperationResult(
+    "save-server",
+    "success",
+    `${actionText}已保存，正在后台重载 Nginx`,
+  );
+
+  void (async () => {
+    try {
+      const reloadResult = await invoke<{ success: boolean; message: string }>(
+        "reload_nginx",
+        {
+          nginxPath,
+        },
+      );
+
+      if (reloadResult.success) {
+        await nginxStore.checkStatus().catch(() => undefined);
+        emitConfigOperationResult(
+          "save-server-reload",
+          "success",
+          `${actionText}已保存，后台重载完成`,
+        );
+        return;
+      }
+
+      emitConfigOperationResult(
+        "save-server-reload",
+        "warning",
+        `${actionText}已保存，但后台重载失败：${reloadResult.message}`,
+      );
+    } catch (error) {
+      emitConfigOperationResult(
+        "save-server-reload",
+        "error",
+        `${actionText}已保存，但后台重载异常：${error}`,
+      );
+    }
+  })();
+};
+
 const executeToggleServerState = async (
   server: ServerBlock,
   targetEnabled: boolean,
@@ -600,16 +741,41 @@ const executeToggleServerState = async (
     );
 
     if (!result.success) {
-      emitConfigOperationResult("error", `${actionText}失败：${result.message}`);
+      emitConfigOperationResult(
+        "toggle-server-state",
+        "error",
+        `${actionText}失败：${result.message}`,
+      );
       return;
     }
 
+    recordFileChangeLog({
+      operationLabel: actionText,
+      fileBefore: configStore.config?.rawContent ?? "",
+      fileAfter: newContent,
+      targetLabel: buildServerScopeLabel(server),
+      serverDiff: {
+        label: buildServerScopeLabel(server),
+        before: extractLineRange(
+          configStore.config?.rawContent ?? "",
+          server.startLine,
+          server.endLine,
+        ),
+        after: renderManagedServerBlock(server.rawContent, targetEnabled),
+      },
+      locationDiffs: [],
+    });
+
     await configStore.loadConfig(localConfigPath.value);
     const notice = await reloadNginxAfterConfigChange(actionText);
-    emitConfigOperationResult(notice.level, notice.message);
+    emitConfigOperationResult("toggle-server-state", notice.level, notice.message);
   } catch (error) {
     message.destroyAll();
-    emitConfigOperationResult("error", `${actionText}失败：${error}`);
+    emitConfigOperationResult(
+      "toggle-server-state",
+      "error",
+      `${actionText}失败：${error}`,
+    );
   }
 };
 
@@ -630,7 +796,7 @@ const handleToggleServerState = (server: ServerBlock) => {
   });
 };
 
-const handleDeleteServer = (serverId: string) => {
+const handleDeleteServer = (server: ServerBlock) => {
   dialog.warning({
     title: "确认删除",
     content: "确定要删除这个 Server 块吗？此操作不可撤销。",
@@ -638,11 +804,17 @@ const handleDeleteServer = (serverId: string) => {
     negativeText: "取消",
     onPositiveClick: async () => {
       try {
+        const previousContent = await getCurrentConfigContent();
+        const nextContent = removeLineRange(
+          previousContent,
+          server.startLine,
+          server.endLine,
+        );
         const result = await invoke<{ success: boolean; message: string }>(
           "delete_server_block",
           {
             configPath: localConfigPath.value,
-            serverId,
+            serverId: server.id,
           },
         );
 
@@ -650,6 +822,19 @@ const handleDeleteServer = (serverId: string) => {
           message.error(result.message);
           return;
         }
+
+        recordFileChangeLog({
+          operationLabel: "删除 Server 配置",
+          fileBefore: previousContent,
+          fileAfter: nextContent,
+          targetLabel: buildServerScopeLabel(server),
+          serverDiff: {
+            label: buildServerScopeLabel(server),
+            before: server.rawContent,
+            after: "",
+          },
+          locationDiffs: buildLocationDiffs(server.rawContent, ""),
+        });
 
         if (!settingsStore.settings.nginxPath) {
           message.success("删除成功，但尚未配置 Nginx 路径，未执行校验");
@@ -715,6 +900,7 @@ const handleSaveEditor = async () => {
       : editorContent.value;
 
   try {
+    const previousContent = await getCurrentConfigContent();
     message.loading("正在生成配置...", { duration: 0 });
 
     const newContent =
@@ -782,16 +968,43 @@ const handleSaveEditor = async () => {
       return;
     }
 
-    const successText =
+    const actionText =
+      editorMode.value === "add" ? "新增 Server 配置" : "更新 Server 配置";
+    const targetLabel =
       editorMode.value === "add"
-        ? "新增 Server 配置成功"
-        : "更新 Server 配置成功";
+        ? categoryName.value.trim() || "新增 Server"
+        : buildServerScopeLabel(editingServer.value);
+
     editorContent.value = nextEditorContent;
-    message.success(successText);
-    logStore.success(successText);
+
+    recordFileChangeLog({
+      operationLabel: actionText,
+      fileBefore: previousContent,
+      fileAfter: newContent,
+      targetLabel,
+      serverDiff: {
+        label: targetLabel,
+        before: editingServer.value?.rawContent ?? "",
+        after: nextEditorContent,
+      },
+      locationDiffs: buildLocationDiffs(
+        editingServer.value?.rawContent ?? "",
+        nextEditorContent,
+      ),
+    });
 
     showCodeModal.value = false;
-    await configStore.loadConfig(localConfigPath.value);
+    void configStore.loadConfig(localConfigPath.value);
+
+    if (settingsStore.settings.autoReloadAfterSave) {
+      triggerReloadAfterSave(actionText);
+    } else {
+      emitConfigOperationResult(
+        "save-server",
+        "success",
+        `${actionText}成功，未自动重载 Nginx`,
+      );
+    }
   } catch (error) {
     message.destroyAll();
     message.error(`操作失败: ${error}`);
@@ -838,9 +1051,7 @@ const handleFormatEntireConfig = async () => {
     logStore.info(`开始格式化配置文件: ${localConfigPath.value}`);
     message.loading("正在读取配置文件...", { duration: 0 });
 
-    const content = await invoke<string>("read_config_file_content", {
-      configPath: localConfigPath.value,
-    });
+    const content = await getCurrentConfigContent();
 
     message.destroyAll();
     message.loading("正在格式化配置...", { duration: 0 });
@@ -878,6 +1089,12 @@ const handleFormatEntireConfig = async () => {
     await invoke("write_formatted_config", {
       configPath: localConfigPath.value,
       formattedContent,
+    });
+
+    recordFileChangeLog({
+      operationLabel: "格式化配置文件",
+      fileBefore: content,
+      fileAfter: formattedContent,
     });
 
     message.success("配置文件格式化成功，校验通过");
@@ -942,6 +1159,10 @@ const handleFormatEntireConfig = async () => {
 .filter-search {
   min-width: 260px;
   flex: 1 1 320px;
+}
+
+.search-mode-select {
+  width: 148px;
 }
 
 .filter-select {
@@ -1009,6 +1230,30 @@ const handleFormatEntireConfig = async () => {
   color: var(--text-secondary);
 }
 
+.list-panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.auto-reload-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  background: var(--surface-bg-soft);
+  border: 1px solid var(--surface-border);
+}
+
+.auto-reload-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .list-panel-content {
   flex: 1;
   min-height: 0;
@@ -1047,6 +1292,7 @@ const handleFormatEntireConfig = async () => {
   }
 
   .filter-search,
+  .search-mode-select,
   .filter-select {
     width: 100%;
     min-width: 0;
@@ -1054,6 +1300,11 @@ const handleFormatEntireConfig = async () => {
 
   .list-panel-header {
     flex-direction: column;
+  }
+
+  .list-panel-header-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 </style>

@@ -8,6 +8,8 @@ export interface AppSettings {
   configPath: string;
   theme: 'light' | 'dark' | 'auto';
   language: 'zh-CN' | 'en-US';
+  logRetentionDays: number;
+  autoReloadAfterSave: boolean;
 }
 
 /**
@@ -19,4 +21,3 @@ export interface MenuItem {
   icon?: string;
   path: string;
 }
-

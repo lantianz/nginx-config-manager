@@ -2,6 +2,7 @@ mod nginx;
 mod settings;
 mod config;
 mod file_ops;
+mod logs;
 
 use nginx::{
     check_nginx_status,
@@ -17,6 +18,7 @@ use nginx::{
     test_nginx_config_file,
 };
 use settings::{load_app_settings, save_app_settings};
+use logs::{append_operation_log, clear_operation_logs, load_operation_logs};
 use config::{
     read_config_file,
     read_config_file_content,
@@ -70,6 +72,9 @@ pub fn run() {
             release_port,
             save_app_settings,
             load_app_settings,
+            load_operation_logs,
+            append_operation_log,
+            clear_operation_logs,
             read_config_file,
             read_config_file_content,
             add_server_block,

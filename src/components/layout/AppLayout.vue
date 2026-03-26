@@ -104,11 +104,13 @@ import {
 } from '@vicons/ionicons5';
 import GlobalNotification from '@/components/GlobalNotification.vue';
 import TitleBar from '@/components/layout/TitleBar.vue';
+import { useLogStore } from '@/stores/log';
 import { useNginxStore } from '@/stores/nginx';
 import { useSettingsStore } from '@/stores/settings';
 
 const router = useRouter();
 const route = useRoute();
+const logStore = useLogStore();
 const nginxStore = useNginxStore();
 const settingsStore = useSettingsStore();
 
@@ -212,6 +214,17 @@ watch(
 );
 
 watch(
+  () => settingsStore.settings.logRetentionDays,
+  (retentionDays, previousDays) => {
+    if (!settingsStore.isLoaded || !logStore.isLoaded || retentionDays === previousDays) {
+      return;
+    }
+
+    void logStore.loadPersisted(retentionDays);
+  }
+);
+
+watch(
   () => settingsStore.settings.theme,
   (savedTheme) => {
     if (savedTheme === 'dark') {
@@ -237,6 +250,9 @@ const handleMenuSelect = (key: string) => {
 onMounted(async () => {
   if (!settingsStore.isLoaded) {
     await settingsStore.loadSettings();
+  }
+  if (!logStore.isLoaded) {
+    await logStore.initialize();
   }
   await nginxStore.checkStatus().catch(() => undefined);
 });

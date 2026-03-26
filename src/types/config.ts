@@ -50,6 +50,8 @@ export interface NginxConfig {
   rawContent: string;
 }
 
+export type ConfigSearchMode = 'port' | 'location' | 'keyword';
+
 /**
  * 配置编辑表单数据 - Server
  */

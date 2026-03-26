@@ -27,7 +27,7 @@ export interface NginxOperationResult {
 export interface ConfigOperationResult {
   level: 'success' | 'warning' | 'error' | 'info';
   message: string;
-  operation: 'toggle-server-state';
+  operation: 'toggle-server-state' | 'save-server' | 'save-server-reload';
 }
 
 // ---- 事件名常量 ----
