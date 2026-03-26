@@ -207,7 +207,7 @@
             <div v-if="portInspection.isOccupied" class="process-list">
               <n-card
                 v-for="entry in portInspection.entries"
-                :key="`${entry.localPort}-${entry.pid}`"
+                :key="`${entry.protocol}-${entry.localAddress}-${entry.localPort}-${entry.pid}`"
                 :bordered="false"
                 class="process-item"
                 size="small"

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -235,20 +235,152 @@ where
 }
 
 #[cfg(target_os = "windows")]
-fn inspect_ports_windows(ports: &[u16]) -> Result<Vec<PortProcessInfo>, String> {
-    let port_csv = ports
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessMetadata {
+    pid: u32,
+    process_name: String,
+    executable_path: Option<String>,
+    command_line: Option<String>,
+    user: Option<String>,
+    start_time: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct NetstatEndpoint {
+    protocol: String,
+    local_address: String,
+    local_port: u16,
+    pid: u32,
+    status: String,
+}
+
+#[cfg(target_os = "windows")]
+fn is_listen_state(state: &str) -> bool {
+    state.eq_ignore_ascii_case("listening")
+        || state.eq_ignore_ascii_case("listen")
+        || state == "侦听"
+}
+
+#[cfg(target_os = "windows")]
+fn parse_local_endpoint(endpoint: &str) -> Option<(String, u16)> {
+    let (address, port_text) = endpoint.rsplit_once(':')?;
+    let port = port_text.parse::<u16>().ok()?;
+    let normalized_address = address
+        .trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_string();
+
+    Some((normalized_address, port))
+}
+
+#[cfg(target_os = "windows")]
+fn parse_netstat_listener_line(line: &str) -> Option<NetstatEndpoint> {
+    let columns: Vec<&str> = line.split_whitespace().collect();
+    let protocol = columns.first()?.to_uppercase();
+
+    match protocol.as_str() {
+        "TCP" => {
+            if columns.len() < 5 || !is_listen_state(columns[3]) {
+                return None;
+            }
+
+            let (local_address, local_port) = parse_local_endpoint(columns[1])?;
+            let pid = columns[4].parse::<u32>().ok()?;
+
+            Some(NetstatEndpoint {
+                protocol,
+                local_address,
+                local_port,
+                pid,
+                status: "Listen".to_string(),
+            })
+        }
+        "UDP" => {
+            if columns.len() < 4 {
+                return None;
+            }
+
+            let (local_address, local_port) = parse_local_endpoint(columns[1])?;
+            let pid = columns[3].parse::<u32>().ok()?;
+
+            Some(NetstatEndpoint {
+                protocol,
+                local_address,
+                local_port,
+                pid,
+                status: "Bound".to_string(),
+            })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn query_netstat_endpoints_windows(ports: &[u16]) -> Result<Vec<NetstatEndpoint>, String> {
+    let output = Command::new("cmd")
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["/C", "netstat -ano"])
+        .output()
+        .map_err(|e| format!("执行 netstat 失败: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = decode_output(&output.stderr);
+        let stdout = decode_output(&output.stdout);
+        let message = if !stderr.trim().is_empty() {
+            stderr
+        } else {
+            stdout
+        };
+        return Err(format!("查询端口监听信息失败: {}", message.trim()));
+    }
+
+    let port_filter = ports.iter().copied().collect::<BTreeSet<u16>>();
+    let mut seen = HashSet::new();
+    let mut endpoints = Vec::new();
+    let stdout = decode_output(&output.stdout);
+
+    for line in stdout.lines() {
+        let Some(endpoint) = parse_netstat_listener_line(line) else {
+            continue;
+        };
+
+        if !port_filter.contains(&endpoint.local_port) {
+            continue;
+        }
+
+        if seen.insert(endpoint.clone()) {
+            endpoints.push(endpoint);
+        }
+    }
+
+    Ok(endpoints)
+}
+
+#[cfg(target_os = "windows")]
+fn query_process_metadata_windows(pids: &[u32]) -> Result<HashMap<u32, ProcessMetadata>, String> {
+    if pids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let pid_csv = pids
         .iter()
-        .map(|port| port.to_string())
+        .map(|pid| pid.to_string())
         .collect::<Vec<String>>()
         .join(",");
 
     let script = format!(
         r#"
-$ports = @({port_csv})
-$connections = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object {{ $ports.Count -eq 0 -or $ports -contains [int]$_.LocalPort }}
-$results = foreach ($conn in $connections) {{
-    $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
-    $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $($conn.OwningProcess)" -ErrorAction SilentlyContinue
+$pids = @({pid_csv})
+$results = foreach ($pid in $pids) {{
+    $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+    $cim = Get-CimInstance Win32_Process -Filter "ProcessId = $pid" -ErrorAction SilentlyContinue
+    if (-not $proc -and -not $cim) {{
+        continue
+    }}
+
     $owner = $null
     if ($cim) {{
         try {{
@@ -281,15 +413,11 @@ $results = foreach ($conn in $connections) {{
     }}
 
     [PSCustomObject]@{{
-        protocol = 'TCP'
-        localAddress = [string]$conn.LocalAddress
-        localPort = [int]$conn.LocalPort
-        pid = [int]$conn.OwningProcess
+        pid = [int]$pid
         processName = if ($proc) {{ [string]$proc.ProcessName }} elseif ($cim) {{ [string]$cim.Name }} else {{ '' }}
         executablePath = $path
         commandLine = if ($cim) {{ $cim.CommandLine }} else {{ $null }}
         user = $owner
-        status = [string]$conn.State
         startTime = $startTime
     }}
 }}
@@ -299,8 +427,51 @@ $results = foreach ($conn in $connections) {{
     );
 
     let output = run_powershell(&script)?;
-    let mut entries: Vec<PortProcessInfo> = deserialize_json_vec(&output)?;
-    entries.sort_by_key(|item| (item.local_port, item.pid));
+    let entries: Vec<ProcessMetadata> = deserialize_json_vec(&output)?;
+    Ok(entries.into_iter().map(|entry| (entry.pid, entry)).collect())
+}
+
+#[cfg(target_os = "windows")]
+fn inspect_ports_windows(ports: &[u16]) -> Result<Vec<PortProcessInfo>, String> {
+    let endpoints = query_netstat_endpoints_windows(ports)?;
+    let unique_pids = endpoints
+        .iter()
+        .map(|entry| entry.pid)
+        .collect::<BTreeSet<u32>>()
+        .into_iter()
+        .collect::<Vec<u32>>();
+    let metadata_map = query_process_metadata_windows(&unique_pids)?;
+
+    let mut entries = endpoints
+        .into_iter()
+        .map(|endpoint| {
+            let metadata = metadata_map.get(&endpoint.pid);
+
+            PortProcessInfo {
+                protocol: endpoint.protocol,
+                local_address: endpoint.local_address,
+                local_port: endpoint.local_port,
+                pid: endpoint.pid,
+                process_name: metadata
+                    .map(|item| item.process_name.clone())
+                    .unwrap_or_default(),
+                executable_path: metadata.and_then(|item| item.executable_path.clone()),
+                command_line: metadata.and_then(|item| item.command_line.clone()),
+                user: metadata.and_then(|item| item.user.clone()),
+                status: endpoint.status,
+                start_time: metadata.and_then(|item| item.start_time.clone()),
+            }
+        })
+        .collect::<Vec<PortProcessInfo>>();
+
+    entries.sort_by(|left, right| {
+        left.local_port
+            .cmp(&right.local_port)
+            .then_with(|| left.protocol.cmp(&right.protocol))
+            .then_with(|| left.pid.cmp(&right.pid))
+            .then_with(|| left.local_address.cmp(&right.local_address))
+    });
+
     Ok(entries)
 }
 
@@ -319,8 +490,22 @@ fn build_port_inspection_results(
         .map(|port| {
             let port_entries = entry_map.remove(port).unwrap_or_default();
             let is_occupied = !port_entries.is_empty();
+            let process_count = port_entries
+                .iter()
+                .map(|entry| entry.pid)
+                .collect::<BTreeSet<u32>>()
+                .len();
             let base_message = if is_occupied {
-                format!("端口 {} 当前被 {} 个监听进程占用", port, port_entries.len())
+                if process_count == port_entries.len() {
+                    format!("端口 {} 当前被 {} 个监听进程占用", port, process_count)
+                } else {
+                    format!(
+                        "端口 {} 当前存在 {} 条监听/绑定记录，涉及 {} 个进程",
+                        port,
+                        port_entries.len(),
+                        process_count
+                    )
+                }
             } else {
                 format!("端口 {} 当前空闲", port)
             };
@@ -1126,6 +1311,26 @@ pub async fn test_nginx_config_file(nginx_path: String, config_path: String) -> 
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn parse_netstat_listener_line_should_support_tcp_and_udp() {
+        let tcp = parse_netstat_listener_line("  TCP    0.0.0.0:80           0.0.0.0:0              LISTENING       1234")
+            .expect("tcp listener");
+        assert_eq!(tcp.protocol, "TCP");
+        assert_eq!(tcp.local_address, "0.0.0.0");
+        assert_eq!(tcp.local_port, 80);
+        assert_eq!(tcp.pid, 1234);
+        assert_eq!(tcp.status, "Listen");
+
+        let udp = parse_netstat_listener_line("  UDP    [::]:5353            *:*                                    4321")
+            .expect("udp endpoint");
+        assert_eq!(udp.protocol, "UDP");
+        assert_eq!(udp.local_address, "::");
+        assert_eq!(udp.local_port, 5353);
+        assert_eq!(udp.pid, 4321);
+        assert_eq!(udp.status, "Bound");
+    }
+
     #[test]
     fn build_port_inspection_results_should_group_entries_by_port() {
         let permission = PermissionStatus {
@@ -1166,5 +1371,6 @@ mod tests {
         assert!(results[0].is_occupied);
         assert!(!results[1].is_occupied);
         assert_eq!(results[2].entries[0].pid, 2000);
+        assert!(results[0].message.contains("1 个监听进程"));
     }
 }

@@ -4,11 +4,16 @@
     preset="card"
     :title="title"
     class="server-code-modal"
-    :style="{ width: 'min(1100px, calc(100vw - 32px))' }"
+    :style="modalStyle"
+    :content-style="modalContentStyle"
+    :footer-style="modalFooterStyle"
     :bordered="false"
     @update:show="handleShowChange"
   >
-    <div class="server-code-shell">
+    <div
+      class="server-code-shell"
+      :class="{ 'with-category': hasCategorySection }"
+    >
       <div class="editor-toolbar">
         <div class="editor-toolbar-main">
           <n-select
@@ -161,6 +166,7 @@ const activeLocationId = ref<string | null>(null);
 const activeLocation = computed(() =>
   props.locations.find((location) => location.id === activeLocationId.value) ?? null
 );
+const hasCategorySection = computed(() => props.categoryMode !== 'hidden');
 
 const categoryInput = computed({
   get: () => props.categoryName,
@@ -177,6 +183,22 @@ const locationOptions = computed(() =>
 );
 
 const editorTheme = computed(() => (document.body.classList.contains('dark') ? 'vs-dark' : 'vs'));
+const modalStyle = {
+  width: 'min(1100px, calc(100vw - 32px))',
+  height: 'min(86vh, 840px)',
+  display: 'flex',
+  flexDirection: 'column',
+};
+const modalContentStyle = {
+  padding: '16px',
+  display: 'flex',
+  flex: '1 1 auto',
+  minHeight: '0',
+  overflow: 'hidden',
+};
+const modalFooterStyle = {
+  padding: '12px 16px 16px',
+};
 
 const editorOptions = computed(() => ({
   automaticLayout: true,
@@ -292,16 +314,20 @@ const jumpToLocation = (location: LocationBlock) => {
 <style scoped>
 .server-code-modal {
   max-width: 1100px;
-  max-height: min(86vh, 840px);
 }
 
 .server-code-shell {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
-  height: min(72vh, 680px);
-  min-height: 500px;
+  height: 100%;
   overflow: hidden;
+  min-height: 0;
+  width: 100%;
+}
+
+.server-code-shell.with-category {
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .editor-toolbar {
@@ -440,15 +466,6 @@ const jumpToLocation = (location: LocationBlock) => {
   overflow: hidden;
 }
 
-.server-code-modal :deep(.n-card__content) {
-  padding: 16px !important;
-  overflow: hidden;
-}
-
-.server-code-modal :deep(.n-card__footer) {
-  padding: 12px 16px 16px !important;
-}
-
 .server-code-modal :deep(.location-line-highlight) {
   background: rgba(59, 130, 246, 0.12);
   border-top: 1px solid rgba(59, 130, 246, 0.16);
@@ -462,7 +479,7 @@ const jumpToLocation = (location: LocationBlock) => {
 
 @media (max-width: 860px) {
   .server-code-shell {
-    height: min(78vh, 720px);
+    min-height: 0;
   }
 
   .editor-toolbar {
